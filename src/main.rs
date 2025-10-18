@@ -1,51 +1,88 @@
-use anyhow::{Context, Result};
-use tracing::{error, info};
-use tracing_subscriber::{fmt, EnvFilter};
+use anyhow::Result;
+use clap::Parser;
+use std::collections::BTreeMap;
+use tracing::info;
+
+use goostr::{
+    cli::{Cli, Command},
+    config, logging, server,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_tracing();
-    info!("Goostr runtime starting");
+    logging::init();
+    info!("goostr runtime starting");
 
-    if let Err(e) = run().await {
-        error!(error = %e, "runtime error");
-    }
-
-    info!("Goostr runtime stopped");
-    Ok(())
-}
-
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-    fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_ansi(true)
-        .init();
-}
-
-async fn run() -> Result<()> {
-    shutdown_signal().await?;
-    Ok(())
-}
-
-async fn shutdown_signal() -> Result<()> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut term = signal(SignalKind::terminate())
-            .context("install SIGTERM handler")?;
-        tokio::select! {
-            res = tokio::signal::ctrl_c() => { res.context("listen for Ctrl+C")?; }
-            _ = term.recv() => {}
+    let cli = Cli::parse();
+    match cli.command {
+        None | Some(Command::Start) => {
+            info!("starting goostr MCP server (stdio)");
+            server::start_stdio_server().await?;
+        }
+        Some(Command::Install {
+            id,
+            name,
+            display_name,
+            description,
+            cmd,
+            enabled,
+            timeout,
+            bundled,
+            available_tools,
+            args,
+            env,
+            env_keys,
+        }) => {
+            let exe = resolve_exe(cmd, "goostr");
+            let envs = parse_env_pairs(&env);
+            config::upsert_stdio_extension(
+                &id,
+                &name,
+                &display_name,
+                &description,
+                &exe,
+                enabled,
+                timeout,
+                bundled,
+                &available_tools,
+                &args,
+                &envs,
+                &env_keys,
+            )?;
+            println!("Installed or updated Goose extension '{}'", id);
+            println!("Config path: {}", config::path().display());
+        }
+        Some(Command::Uninstall { id }) => {
+            let removed = config::remove_extension(&id)?;
+            if removed {
+                println!("Removed Goose extension '{}'", id);
+            } else {
+                println!("No Goose extension '{}' found", id);
+            }
+            println!("Config path: {}", config::path().display());
         }
     }
 
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c().await.context("listen for Ctrl+C")?;
-    }
-
+    info!("goostr runtime stopped");
     Ok(())
+}
+
+fn resolve_exe(cmd: Option<String>, fallback_name: &str) -> String {
+    if let Some(c) = cmd {
+        return c;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| fallback_name.to_string())
+}
+
+fn parse_env_pairs(pairs: &[String]) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for p in pairs {
+        if let Some((k, v)) = p.split_once('=') {
+            map.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    map
 }

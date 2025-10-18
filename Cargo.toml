@@ -1,0 +1,20 @@
+[package]
+name = "goostr"
+version = "0.1.0"
+edition = "2021"
+description = "Codename Goose Nostr MCP extension"
+license = "MIT"
+repository = "https://github.com/nostr-mcp/goostr"
+keywords = ["mcp", "nostr", "goose", "extension"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "std"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"

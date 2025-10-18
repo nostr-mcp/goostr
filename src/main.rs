@@ -5,18 +5,19 @@ use tracing::info;
 
 use goostr::{
     cli::{Cli, Command},
-    config, logging, server,
+    config, logging, server, util,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
     logging::init();
+    let _ = util::ensure_keystore_secret();
     info!("goostr runtime starting");
 
     let cli = Cli::parse();
+
     match cli.command {
         None | Some(Command::Start) => {
-            info!("starting goostr MCP server (stdio)");
             server::start_stdio_server().await?;
         }
         Some(Command::Install {

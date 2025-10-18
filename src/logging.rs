@@ -1,4 +1,4 @@
-use crate::config;
+use crate::util;
 use std::sync::OnceLock;
 use tracing_subscriber::{
     filter::LevelFilter, fmt, layer::SubscriberExt, EnvFilter, Layer, Registry,
@@ -8,10 +8,10 @@ static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLo
 
 pub fn init() {
     let want_json = std::env::var_os("GOOSTR_JSON").is_some();
+    let log_dir = util::nostr_config_root().join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
 
-    let _ = std::fs::create_dir_all(config::root().join("logs"));
-
-    let file_appender = tracing_appender::rolling::daily(config::root().join("logs"), "goostr.log");
+    let file_appender = tracing_appender::rolling::daily(log_dir, "goostr.log");
     let (file_nb, guard) = tracing_appender::non_blocking(file_appender);
     let _ = LOG_GUARD.set(guard);
 

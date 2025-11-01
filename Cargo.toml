@@ -5,6 +5,7 @@ edition = "2021"
 description = "Codename Goose Nostr MCP extension"
 license = "MIT"
 repository = "https://github.com/nostr-mcp/goostr"
+readme = "README.md"
 keywords = ["mcp", "nostr", "goose", "extension"]
 categories = ["command-line-utilities", "development-tools"]
 

@@ -7,6 +7,7 @@ pub mod nostr_client;
 pub mod relays;
 pub mod secrets;
 pub mod server;
+pub mod settings;
 pub mod storage;
 pub mod subscriptions;
 pub mod util;

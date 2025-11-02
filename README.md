@@ -49,20 +49,44 @@ goostr install
 
 All tool names are stable and lowercase.
 
-- `nostr_keys_generate`
-- `nostr_keys_import`
-- `nostr_keys_remove`
-- `nostr_keys_list`
-- `nostr_keys_set_active`
-- `nostr_keys_active`
-- `nostr_keys_rename_label`
-- `nostr_config_dir`
-- `nostr_relays_set`
-- `nostr_relays_connect`
-- `nostr_relays_disconnect`
-- `nostr_relays_status`
-- `nostr_events_list`
-- `nostr_events_post_text`
+### Key Management
+- `nostr_keys_generate` - Generate a new Nostr keypair
+- `nostr_keys_import` - Import secret key (nsec or npub)
+- `nostr_keys_remove` - Remove a key by label
+- `nostr_keys_list` - List all stored keys (metadata only)
+- `nostr_keys_set_active` - Set the active key by label
+- `nostr_keys_active` - Get the active key (metadata only)
+- `nostr_keys_rename_label` - Rename a key's label
+
+### Configuration
+- `nostr_config_dir` - Get or set the directory used to persist the key index
+
+### Relay Management
+- `nostr_relays_set` - Set relays and connect
+- `nostr_relays_connect` - Connect to relays that were previously added
+- `nostr_relays_disconnect` - Disconnect or remove relays
+- `nostr_relays_status` - List relay status and flags
+
+### Event Operations
+- `nostr_events_list` - Fetch events using presets or custom filters
+  - **Presets**: `my_notes`, `mentions_me`, `my_metadata`, `by_author`, `by_kind`
+  - **Parameters**:
+    - `preset` (required): Preset name
+    - `limit` (optional): Maximum number of events to return
+    - `timeout_secs` (optional): Query timeout in seconds (default: 10)
+    - `since` (optional): Unix timestamp - only return events after this time
+    - `until` (optional): Unix timestamp - only return events before this time
+    - `kind` (required for `by_kind` preset): Nostr event kind number (e.g., 1 for text notes)
+    - `author_npub` (required for `by_author`, optional for `by_kind`): Author's npub
+  - **Note**: All presets default to looking back 7 days if `since` is not specified
+- `nostr_events_post_text` - Post a new kind=1 text note to configured relays
+
+### Common Event Kinds
+- `1` - Text note (short text note)
+- `3` - Contacts (follow list)
+- `7` - Reaction (like, emoji reaction)
+- `30023` - Long-form content (article)
+- See [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) for more kinds
 
 ## Environment
 

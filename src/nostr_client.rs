@@ -1,12 +1,13 @@
 use crate::error::Error;
 use crate::keys::KeyStore;
 use crate::secrets;
+use crate::settings::SettingsStore;
 use anyhow::{anyhow, Context};
 use nostr::prelude::*;
 use nostr_sdk::prelude::*;
 use std::sync::Arc;
 use tokio::sync::{Mutex, OnceCell, RwLock};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct ActiveClient {
@@ -18,7 +19,10 @@ pub struct ActiveClient {
 static CLIENT_CELL: OnceCell<RwLock<Option<ActiveClient>>> = OnceCell::const_new();
 static BUILD_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 
-async fn build_from_keystore(ks: &KeyStore) -> Result<Option<ActiveClient>, Error> {
+async fn build_from_keystore(
+    ks: &KeyStore,
+    settings_store: &SettingsStore,
+) -> Result<Option<ActiveClient>, Error> {
     let active = ks.get_active().await;
     let Some(active_entry) = active else {
         return Ok(None);
@@ -39,6 +43,29 @@ async fn build_from_keystore(ks: &KeyStore) -> Result<Option<ActiveClient>, Erro
             .opts(ClientOptions::new().automatic_authentication(true))
             .build()
     };
+
+    // Load relay settings for this key and auto-connect
+    let pubkey_hex = pubkey.to_hex();
+    if let Some(settings) = settings_store.get_settings(&pubkey_hex).await {
+        if !settings.relays.is_empty() {
+            info!(
+                "auto-connecting to {} relay(s) for key '{}'",
+                settings.relays.len(),
+                label
+            );
+            for url in &settings.relays {
+                match client.add_relay(url).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("failed to add relay {}: {}", url, e);
+                    }
+                }
+            }
+            // Connect to all relays
+            client.connect().await;
+        }
+    }
+
     Ok(Some(ActiveClient {
         client,
         active_label: label,
@@ -46,7 +73,10 @@ async fn build_from_keystore(ks: &KeyStore) -> Result<Option<ActiveClient>, Erro
     }))
 }
 
-pub async fn ensure_client(ks: Arc<KeyStore>) -> Result<ActiveClient, Error> {
+pub async fn ensure_client(
+    ks: Arc<KeyStore>,
+    settings_store: Arc<SettingsStore>,
+) -> Result<ActiveClient, Error> {
     let cell = CLIENT_CELL
         .get_or_try_init(|| async {
             Ok::<RwLock<Option<ActiveClient>>, anyhow::Error>(RwLock::new(None))
@@ -75,7 +105,7 @@ pub async fn ensure_client(ks: Arc<KeyStore>) -> Result<ActiveClient, Error> {
             }
         }
     }
-    let built = build_from_keystore(&ks).await?;
+    let built = build_from_keystore(&ks, &settings_store).await?;
     if let Some(ac) = built {
         {
             let mut w = cell.write().await;

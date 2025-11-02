@@ -4,6 +4,7 @@ use crate::keys::{
 };
 use crate::nostr_client::{ensure_client, reset_cached_client};
 use crate::relays::*;
+use crate::settings::{KeySettings, SettingsStore};
 use crate::subscriptions::EventsListArgs;
 use crate::util;
 use nostr_sdk::prelude::*;
@@ -25,6 +26,7 @@ use tokio::time::{sleep, Duration};
 use tracing::info;
 
 static KEYSTORE: OnceCell<RwLock<Arc<KeyStore>>> = OnceCell::const_new();
+static SETTINGS_STORE: OnceCell<RwLock<Arc<SettingsStore>>> = OnceCell::const_new();
 
 #[derive(Clone)]
 pub struct GoostrServer {
@@ -38,6 +40,19 @@ impl GoostrServer {
                 let path = util::nostr_index_path();
                 let ks = KeyStore::load_or_init(path).await?;
                 Ok::<RwLock<Arc<KeyStore>>, anyhow::Error>(RwLock::new(Arc::new(ks)))
+            })
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let guard = cell.read().await;
+        Ok(guard.clone())
+    }
+
+    async fn settings_store() -> Result<Arc<SettingsStore>, ErrorData> {
+        let cell = SETTINGS_STORE
+            .get_or_try_init(|| async {
+                let path = util::nostr_settings_path();
+                let ss = SettingsStore::load_or_init(path).await?;
+                Ok::<RwLock<Arc<SettingsStore>>, anyhow::Error>(RwLock::new(Arc::new(ss)))
             })
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -227,12 +242,24 @@ impl GoostrServer {
         Parameters(args): Parameters<RelaysSetArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let ks = Self::keystore().await?;
-        let ac = ensure_client(ks)
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
         set_relays(&ac.client, args)
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+
+        // Save relay URLs to settings
+        let relay_urls = get_relay_urls(&ac.client).await;
+        let pubkey_hex = ac.active_pubkey.to_hex();
+        let settings = KeySettings {
+            relays: relay_urls.clone(),
+        };
+        ss.save_settings(pubkey_hex, settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
         let rows = list_relays(&ac.client)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -248,7 +275,8 @@ impl GoostrServer {
         Parameters(args): Parameters<RelaysConnectArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let ks = Self::keystore().await?;
-        let ac = ensure_client(ks)
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
         connect_relays(&ac.client, args)
@@ -269,12 +297,24 @@ impl GoostrServer {
         Parameters(args): Parameters<RelaysDisconnectArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let ks = Self::keystore().await?;
-        let ac = ensure_client(ks)
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
         disconnect_relays(&ac.client, args)
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+
+        // Save relay URLs to settings after disconnect
+        let relay_urls = get_relay_urls(&ac.client).await;
+        let pubkey_hex = ac.active_pubkey.to_hex();
+        let settings = KeySettings {
+            relays: relay_urls.clone(),
+        };
+        ss.save_settings(pubkey_hex, settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
         let rows = list_relays(&ac.client)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -288,7 +328,8 @@ impl GoostrServer {
         _args: Parameters<EmptyArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let ks = Self::keystore().await?;
-        let ac = ensure_client(ks)
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
         let rows = list_relays(&ac.client)
@@ -302,20 +343,28 @@ impl GoostrServer {
     }
 
     #[tool(
-        description = "Fetch events using presets. Presets: my_notes, mentions_me, my_metadata, by_author"
+        description = "Fetch events using presets or custom filters. Presets: my_notes, mentions_me, my_metadata, by_author, by_kind. For by_kind: specify 'kind' parameter. Optional: limit, timeout_secs, since (unix timestamp), until (unix timestamp), author_npub (for by_author)"
     )]
     pub async fn nostr_events_list(
         &self,
         Parameters(args): Parameters<EventsListArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let ks = Self::keystore().await?;
-        let ac = ensure_client(ks)
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+
+        // Convert optional timestamps from u64 to Timestamp
+        let since_ts = args.since.map(Timestamp::from);
+        let until_ts = args.until.map(Timestamp::from);
+
         let preset = args.preset.to_ascii_lowercase();
         let mut filter = match preset.as_str() {
-            "my_notes" => subscription_targets_my_notes(ac.active_pubkey).await,
-            "mentions_me" => subscription_targets_mentions_me(ac.active_pubkey).await,
+            "my_notes" => subscription_targets_my_notes(ac.active_pubkey, since_ts, until_ts).await,
+            "mentions_me" => {
+                subscription_targets_mentions_me(ac.active_pubkey, since_ts, until_ts).await
+            }
             "my_metadata" => subscription_targets_my_metadata(ac.active_pubkey).await,
             "by_author" => {
                 let npub_ref = args.author_npub.as_ref().ok_or_else(|| {
@@ -326,7 +375,40 @@ impl GoostrServer {
                 })?;
                 let pk = PublicKey::from_bech32(npub_ref)
                     .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
-                Filter::new().author(pk).since(Timestamp::now())
+
+                // Default to looking back 7 days if no since time specified
+                let default_since = Timestamp::now() - 86400 * 7;
+                let mut f = Filter::new()
+                    .author(pk)
+                    .since(since_ts.unwrap_or(default_since));
+
+                if let Some(u) = until_ts {
+                    f = f.until(u);
+                }
+                f
+            }
+            "by_kind" => {
+                let kind_num = args.kind.ok_or_else(|| {
+                    ErrorData::invalid_params("kind is required for preset 'by_kind'", None)
+                })?;
+
+                // Default to looking back 7 days if no since time specified
+                let default_since = Timestamp::now() - 86400 * 7;
+                let mut f = Filter::new()
+                    .kind(Kind::from(kind_num))
+                    .since(since_ts.unwrap_or(default_since));
+
+                if let Some(u) = until_ts {
+                    f = f.until(u);
+                }
+
+                // Optionally filter by author if provided
+                if let Some(npub_ref) = &args.author_npub {
+                    let pk = PublicKey::from_bech32(npub_ref)
+                        .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+                    f = f.author(pk);
+                }
+                f
             }
             _ => return Err(ErrorData::invalid_params("unknown preset", None)),
         };
@@ -361,7 +443,8 @@ impl GoostrServer {
         Parameters(args): Parameters<PostTextArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let ks = Self::keystore().await?;
-        let ac = ensure_client(ks)
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
         let result = post_text_note(&ac.client, args)

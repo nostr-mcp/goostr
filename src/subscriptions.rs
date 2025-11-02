@@ -7,6 +7,9 @@ pub struct EventsListArgs {
     pub limit: Option<u64>,
     pub timeout_secs: Option<u64>,
     pub author_npub: Option<String>,
+    pub kind: Option<u16>,
+    pub since: Option<u64>,
+    pub until: Option<u64>,
 }
 
 impl EventsListArgs {

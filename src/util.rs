@@ -21,6 +21,10 @@ pub fn nostr_index_path() -> PathBuf {
     nostr_config_root().join("keys.enc")
 }
 
+pub fn nostr_settings_path() -> PathBuf {
+    nostr_config_root().join("settings.enc")
+}
+
 pub fn legacy_keys_json_path() -> PathBuf {
     nostr_config_root().join("keys.json")
 }

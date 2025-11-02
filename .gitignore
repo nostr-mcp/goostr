@@ -23,3 +23,6 @@ Thumbs.db
 .local/
 notes*.txt
 .vscode/
+
+# goose
+src/**/*.rs.bak

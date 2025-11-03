@@ -1,6 +1,1 @@
 Goostr is a Nostr MCP extension for Goose, providing key management, relay configuration, event publishing, and metadata handling.
-
-Documentation:
-- Do NOT create CHANGELOG.md, EXPORT_GUIDE.md, or other auxiliary documentation files
-- Only update README.md for user-facing documentation
-- Implementation notes should go in commit messages, not separate markdown files

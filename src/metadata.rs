@@ -29,13 +29,14 @@ pub struct MetadataResult {
     pub saved: bool,
     pub published: bool,
     pub event_id: Option<String>,
+    pub pubkey: Option<String>,
     pub success_relays: Vec<String>,
     pub failed_relays: HashMap<String, String>,
 }
 
 pub fn profile_to_nostr_metadata(profile: &ProfileMetadata) -> Result<Metadata> {
     let mut metadata = Metadata::new();
-    
+
     if let Some(name) = &profile.name {
         metadata = metadata.name(name);
     }
@@ -66,7 +67,7 @@ pub fn profile_to_nostr_metadata(profile: &ProfileMetadata) -> Result<Metadata> 
         let url = Url::parse(website).context("invalid website URL")?;
         metadata = metadata.website(url);
     }
-    
+
     Ok(metadata)
 }
 
@@ -84,12 +85,17 @@ pub fn args_to_profile(args: &SetMetadataArgs) -> ProfileMetadata {
     }
 }
 
-pub async fn publish_metadata(client: &Client, profile: &ProfileMetadata) -> Result<MetadataResult> {
+pub async fn publish_metadata(
+    client: &Client,
+    profile: &ProfileMetadata,
+) -> Result<MetadataResult> {
     let metadata = profile_to_nostr_metadata(profile)?;
     let builder = EventBuilder::metadata(&metadata);
-    
+
     let output = client.send_event_builder(builder).await?;
-    
+
+    let pubkey = client.signer().await?.get_public_key().await?.to_hex();
+
     let event_id = output.id().to_string();
     let success_relays: Vec<String> = output.success.iter().map(|u| u.to_string()).collect();
     let failed_relays: HashMap<String, String> = output
@@ -97,26 +103,24 @@ pub async fn publish_metadata(client: &Client, profile: &ProfileMetadata) -> Res
         .iter()
         .map(|(u, e)| (u.to_string(), e.to_string()))
         .collect();
-    
+
     Ok(MetadataResult {
         saved: true,
         published: true,
         event_id: Some(event_id),
+        pubkey: Some(pubkey),
         success_relays,
         failed_relays,
     })
 }
 
 pub async fn fetch_metadata(client: &Client, pubkey: &PublicKey) -> Result<Option<Metadata>> {
-    let filter = Filter::new()
-        .author(*pubkey)
-        .kind(Kind::Metadata)
-        .limit(1);
-    
+    let filter = Filter::new().author(*pubkey).kind(Kind::Metadata).limit(1);
+
     let events = client
         .fetch_events(filter, std::time::Duration::from_secs(10))
         .await?;
-    
+
     if let Some(event) = events.first() {
         let metadata = Metadata::from_json(&event.content)?;
         Ok(Some(metadata))

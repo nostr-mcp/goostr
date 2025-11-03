@@ -12,6 +12,7 @@ Goostr is an extension for [goose](https://github.com/block/goose) that bridges 
 - Nostr key lifecycle: generate, import, rename, set active, list, remove
 - Relay management: set, connect, disconnect, status
 - Event operations: view, post
+- **Active key enforcement**: All signing operations use only the currently active key
 - Configurable data directory, JSON or text logs
 - Self-install helper to register the extension in Goose config
 
@@ -103,6 +104,52 @@ All tool names are stable and lowercase.
 - `7` - Reaction (like, emoji reaction)
 - `30023` - Long-form content (article)
 - See [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) for more kinds
+
+## Active Key Enforcement
+
+**All signing operations use only the currently active key.**
+
+When you post a text note or publish metadata, goostr ensures that:
+
+1. The Nostr client is built with the active key's signer
+2. All events are signed with the active key
+3. The response includes the `pubkey` field for verification
+
+**How it works:**
+
+- Each time an operation requires signing, goostr calls `ensure_client()` which:
+  - Retrieves the current active key from the keystore
+  - Builds a Nostr client with that key as the signer
+  - Caches the client until the active key changes
+  
+- When you change the active key (via `nostr_keys_set_active`), the cached client is reset
+- The next signing operation will rebuild the client with the new active key
+
+**Verification:**
+
+Both `nostr_events_post_text` and `nostr_metadata_set` return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
+
+**Example workflow:**
+
+```bash
+# Generate or import keys
+nostr_keys_generate(label="alice")
+nostr_keys_generate(label="bob")
+
+# Set Alice as active
+nostr_keys_set_active(label="alice")
+
+# This will be signed with Alice's key
+nostr_events_post_text(content="Hello from Alice")
+# Response includes: {"id": "...", "pubkey": "alice_pubkey_hex", ...}
+
+# Switch to Bob
+nostr_keys_set_active(label="bob")
+
+# This will be signed with Bob's key
+nostr_events_post_text(content="Hello from Bob")
+# Response includes: {"id": "...", "pubkey": "bob_pubkey_hex", ...}
+```
 
 ## Environment
 

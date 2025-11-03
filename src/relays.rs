@@ -36,6 +36,7 @@ pub struct SendResult {
     pub id: String,
     pub success: Vec<String>,
     pub failed: HashMap<String, String>,
+    pub pubkey: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -120,27 +121,35 @@ pub async fn get_relay_urls(client: &Client) -> Vec<String> {
     map.keys().map(|url| url.to_string()).collect()
 }
 
-pub async fn subscription_targets_my_notes(pk: PublicKey, since: Option<Timestamp>, until: Option<Timestamp>) -> Filter {
+pub async fn subscription_targets_my_notes(
+    pk: PublicKey,
+    since: Option<Timestamp>,
+    until: Option<Timestamp>,
+) -> Filter {
     let default_since = Timestamp::now() - 86400 * 7;
     let mut filter = Filter::new()
         .author(pk)
         .kind(Kind::TextNote)
         .since(since.unwrap_or(default_since));
-    
+
     if let Some(u) = until {
         filter = filter.until(u);
     }
     filter
 }
 
-pub async fn subscription_targets_mentions_me(pk: PublicKey, since: Option<Timestamp>, until: Option<Timestamp>) -> Filter {
+pub async fn subscription_targets_mentions_me(
+    pk: PublicKey,
+    since: Option<Timestamp>,
+    until: Option<Timestamp>,
+) -> Filter {
     let default_since = Timestamp::now() - 86400 * 7;
     let needle = pk.to_string();
     let mut filter = Filter::new()
         .kind(Kind::TextNote)
         .search(needle)
         .since(since.unwrap_or(default_since));
-    
+
     if let Some(u) = until {
         filter = filter.until(u);
     }
@@ -175,6 +184,9 @@ pub async fn publish_event_builder(
     } else {
         client.send_event_builder(builder).await?
     };
+
+    let pubkey = client.signer().await?.get_public_key().await?.to_hex();
+
     let id = out.id().to_string();
     let success = out.success.into_iter().map(|u| u.to_string()).collect();
     let failed = out
@@ -182,10 +194,12 @@ pub async fn publish_event_builder(
         .into_iter()
         .map(|(u, e)| (u.to_string(), e.to_string()))
         .collect();
+
     Ok(SendResult {
         id,
         success,
         failed,
+        pubkey,
     })
 }
 

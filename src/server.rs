@@ -203,7 +203,9 @@ impl GoostrServer {
         Ok(CallToolResult::success(vec![content]))
     }
 
-    #[tool(description = "Export a key in various formats (npub/nsec/hex). Exports active key if label not specified. WARNING: include_private=true will expose your private key")]
+    #[tool(
+        description = "Export a key in various formats (npub/nsec/hex). Exports active key if label not specified. WARNING: include_private=true will expose your private key"
+    )]
     pub async fn nostr_keys_export(
         &self,
         Parameters(args): Parameters<ExportArgs>,
@@ -217,7 +219,9 @@ impl GoostrServer {
         Ok(CallToolResult::success(vec![content]))
     }
 
-    #[tool(description = "Verify a Nostr key format and validity. Checks if a string is a valid npub, nsec, or hex key")]
+    #[tool(
+        description = "Verify a Nostr key format and validity. Checks if a string is a valid npub, nsec, or hex key"
+    )]
     pub async fn nostr_keys_verify(
         &self,
         Parameters(args): Parameters<VerifyArgs>,
@@ -227,7 +231,9 @@ impl GoostrServer {
         Ok(CallToolResult::success(vec![content]))
     }
 
-    #[tool(description = "Derive public key from a private key. Accepts nsec or hex private key format")]
+    #[tool(
+        description = "Derive public key from a private key. Accepts nsec or hex private key format"
+    )]
     pub async fn nostr_keys_get_public_from_private(
         &self,
         Parameters(args): Parameters<DerivePublicArgs>,
@@ -471,7 +477,7 @@ impl GoostrServer {
     }
 
     #[tool(
-        description = "Post a new kind=1 text note to configured relays. Optional: pow (u8), to_relays (urls)"
+        description = "Post a new kind=1 text note to configured relays using the active key. The note will be signed with the currently active key. Returns the event ID and the pubkey that signed it for verification. Optional: pow (u8), to_relays (urls)"
     )]
     pub async fn nostr_events_post_text(
         &self,
@@ -490,7 +496,7 @@ impl GoostrServer {
     }
 
     #[tool(
-        description = "Set kind 0 metadata (profile) for the active key. All fields are optional. Set publish=true to broadcast to relays immediately (default: true)"
+        description = "Set kind 0 metadata (profile) for the active key. All fields are optional. Set publish=true to broadcast to relays immediately using the active key (default: true). Returns the pubkey that signed the metadata event for verification"
     )]
     pub async fn nostr_metadata_set(
         &self,
@@ -532,6 +538,7 @@ impl GoostrServer {
                 saved: true,
                 published: false,
                 event_id: None,
+                pubkey: None,
                 success_relays: vec![],
                 failed_relays: std::collections::HashMap::new(),
             }

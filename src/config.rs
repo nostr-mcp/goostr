@@ -34,7 +34,8 @@ fn read_yaml(path: &Path) -> Result<Value> {
         return Ok(Value::Mapping(Mapping::new()));
     }
     let s = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let v: Value = serde_yaml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
+    let v: Value =
+        serde_yaml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
     Ok(v)
 }
 

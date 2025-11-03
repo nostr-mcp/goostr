@@ -54,14 +54,14 @@ impl SettingsStore {
         util::ensure_parent_dir(&path)?;
         let pass = util::ensure_keystore_secret()?;
         let pass_arc = Arc::new(pass);
-        
+
         let data = if path.exists() {
             storage::decrypt_from_file::<SettingsFile>(&path, &pass_arc)
                 .context("decrypt settings file")?
         } else {
             SettingsFile::default()
         };
-        
+
         Ok(Self {
             path,
             inner: Arc::new(RwLock::new(data)),

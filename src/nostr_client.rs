@@ -30,10 +30,12 @@ async fn build_from_keystore(
     let label = active_entry.label.clone();
     let pubkey = PublicKey::from_bech32(&active_entry.public_key)
         .with_context(|| "invalid active public key")?;
+
     let maybe_nsec = secrets::get(&label)?;
     let client = if let Some(nsec) = maybe_nsec {
         let keys =
             Keys::parse(&nsec).map_err(|e| anyhow!("invalid stored secret for '{label}': {e}"))?;
+
         Client::builder()
             .signer(keys)
             .opts(ClientOptions::new().automatic_authentication(true))

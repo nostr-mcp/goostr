@@ -190,14 +190,18 @@ impl KeyStore {
         let target_label = match label {
             Some(l) => l,
             None => {
-                let active = self.get_active().await
+                let active = self
+                    .get_active()
+                    .await
                     .ok_or_else(|| anyhow!("no active key; specify label or set active key"))?;
                 active.label
             }
         };
 
         let data = self.inner.read().await;
-        let entry = data.keys.get(&target_label)
+        let entry = data
+            .keys
+            .get(&target_label)
             .ok_or_else(|| anyhow!("key not found: {}", target_label))?;
 
         let public_key_bech32 = entry.public_key.clone();
@@ -213,11 +217,15 @@ impl KeyStore {
         };
 
         if include_private {
-            let secret = secrets::get(&target_label)?
-                .ok_or_else(|| anyhow!("private key not found in secure storage for key: {}", target_label))?;
-            
+            let secret = secrets::get(&target_label)?.ok_or_else(|| {
+                anyhow!(
+                    "private key not found in secure storage for key: {}",
+                    target_label
+                )
+            })?;
+
             let keys = Keys::parse(&secret)?;
-            
+
             match format {
                 ExportFormat::Bech32 => {
                     result.private_key_nsec = Some(keys.secret_key().to_bech32()?);
@@ -230,7 +238,7 @@ impl KeyStore {
                     result.private_key_hex = Some(keys.secret_key().to_secret_hex());
                 }
             }
-            
+
             result.warning = Some(
                 "WARNING: This export contains your private key. Keep it secure and never share it. Anyone with access to this key can control your Nostr identity.".to_string()
             );
@@ -352,7 +360,7 @@ pub struct DerivePublicArgs {
 
 pub fn verify_key(key: &str) -> VerifyResult {
     let key = key.trim();
-    
+
     if key.starts_with("npub1") {
         match PublicKey::from_bech32(key) {
             Ok(pk) => VerifyResult {
@@ -440,25 +448,30 @@ pub fn verify_key(key: &str) -> VerifyResult {
             valid: false,
             public_key_npub: None,
             public_key_hex: None,
-            error: Some("Unrecognized key format. Expected npub1..., nsec1..., or 64-character hex".to_string()),
+            error: Some(
+                "Unrecognized key format. Expected npub1..., nsec1..., or 64-character hex"
+                    .to_string(),
+            ),
         }
     }
 }
 
 pub fn derive_public_from_private(private_key: &str) -> Result<DerivePublicResult> {
     let private_key = private_key.trim();
-    
+
     let keys = if private_key.starts_with("nsec1") {
         Keys::parse(private_key)?
     } else if private_key.len() == 64 && private_key.chars().all(|c| c.is_ascii_hexdigit()) {
         let secret = SecretKey::from_hex(private_key)?;
         Keys::new(secret)
     } else {
-        return Err(anyhow!("Invalid private key format. Expected nsec1... or 64-character hex"));
+        return Err(anyhow!(
+            "Invalid private key format. Expected nsec1... or 64-character hex"
+        ));
     };
-    
+
     let public_key = keys.public_key();
-    
+
     Ok(DerivePublicResult {
         public_key_npub: public_key.to_bech32()?,
         public_key_hex: public_key.to_hex(),

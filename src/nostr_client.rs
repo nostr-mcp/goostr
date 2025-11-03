@@ -1,7 +1,8 @@
 use crate::error::GoostrError;
+use crate::follows;
 use crate::keys::KeyStore;
 use crate::secrets;
-use crate::settings::SettingsStore;
+use crate::settings::{KeySettings, SettingsStore};
 use anyhow::{anyhow, Context};
 use nostr::prelude::*;
 use nostr_sdk::prelude::*;
@@ -47,7 +48,9 @@ async fn build_from_keystore(
     };
 
     let pubkey_hex = pubkey.to_hex();
-    if let Some(settings) = settings_store.get_settings(&pubkey_hex).await {
+    let settings = settings_store.get_settings(&pubkey_hex).await;
+    
+    if let Some(ref settings) = settings {
         if !settings.relays.is_empty() {
             info!(
                 "auto-connecting to {} relay(s) for key '{}'",
@@ -65,6 +68,37 @@ async fn build_from_keystore(
             client.connect().await;
         }
     }
+
+    tokio::spawn({
+        let client_clone = client.clone();
+        let pubkey_clone = pubkey;
+        let settings_store_clone = settings_store.clone();
+        let pubkey_hex_clone = pubkey_hex.clone();
+        async move {
+            if let Some(settings) = settings {
+                if !settings.relays.is_empty() {
+                    match follows::sync_follows(&client_clone, &pubkey_clone, settings.follows).await {
+                        Ok((synced_follows, published)) => {
+                            if published {
+                                info!("synced follows with relays (published updates)");
+                            }
+                            let updated_settings = KeySettings {
+                                relays: settings.relays,
+                                metadata: settings.metadata,
+                                follows: synced_follows,
+                            };
+                            if let Err(e) = settings_store_clone.save_settings(pubkey_hex_clone, updated_settings).await {
+                                warn!("failed to save synced follows: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("failed to sync follows: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    });
 
     Ok(Some(ActiveClient {
         client,

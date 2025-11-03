@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod config;
 pub mod error;
+pub mod follows;
 pub mod keys;
 pub mod logging;
 pub mod metadata;

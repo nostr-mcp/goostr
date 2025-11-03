@@ -1,4 +1,5 @@
 use crate::error::GoostrError;
+use crate::follows::*;
 use crate::keys::{
     derive_public_from_private, verify_key, DerivePublicArgs, EmptyArgs, ExportArgs, GenerateArgs,
     ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs, VerifyArgs,
@@ -6,7 +7,7 @@ use crate::keys::{
 use crate::metadata::*;
 use crate::nostr_client::{ensure_client, reset_cached_client};
 use crate::relays::*;
-use crate::settings::{KeySettings, SettingsStore};
+use crate::settings::{FollowEntry, KeySettings, SettingsStore};
 use crate::subscriptions::EventsListArgs;
 use crate::util;
 use nostr_sdk::prelude::*;
@@ -298,7 +299,11 @@ impl GoostrServer {
         let existing = ss.get_settings(&pubkey_hex).await;
         let settings = KeySettings {
             relays: relay_urls.clone(),
-            metadata: existing.and_then(|s| s.metadata),
+            metadata: existing.as_ref().and_then(|s| s.metadata.clone()),
+            follows: existing
+                .as_ref()
+                .map(|s| s.follows.clone())
+                .unwrap_or_default(),
         };
         ss.save_settings(pubkey_hex, settings)
             .await
@@ -354,7 +359,11 @@ impl GoostrServer {
         let existing = ss.get_settings(&pubkey_hex).await;
         let settings = KeySettings {
             relays: relay_urls.clone(),
-            metadata: existing.and_then(|s| s.metadata),
+            metadata: existing.as_ref().and_then(|s| s.metadata.clone()),
+            follows: existing
+                .as_ref()
+                .map(|s| s.follows.clone())
+                .unwrap_or_default(),
         };
         ss.save_settings(pubkey_hex, settings)
             .await
@@ -578,6 +587,10 @@ impl GoostrServer {
                 .map(|s| s.relays.clone())
                 .unwrap_or_default(),
             metadata: Some(profile.clone()),
+            follows: existing
+                .as_ref()
+                .map(|s| s.follows.clone())
+                .unwrap_or_default(),
         };
         ss.save_settings(pubkey_hex.clone(), settings)
             .await
@@ -663,6 +676,271 @@ impl GoostrServer {
         }))?;
         Ok(CallToolResult::success(vec![content]))
     }
+
+    #[tool(
+        description = "Set kind 3 follow list for the active key. Replaces entire follow list. Set publish=true to broadcast to relays immediately (default: true). Each follow must have pubkey (hex), optional relay_url, and optional petname. Returns the event ID and pubkey that signed it for verification"
+    )]
+    pub async fn nostr_follows_set(
+        &self,
+        Parameters(args): Parameters<SetFollowsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+
+        let active = ks.get_active().await.ok_or_else(|| {
+            ErrorData::invalid_params("no active key; set one with nostr_keys_set_active", None)
+        })?;
+        let pubkey = PublicKey::from_bech32(&active.public_key)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let pubkey_hex = pubkey.to_hex();
+
+        let existing = ss.get_settings(&pubkey_hex).await;
+        let settings = KeySettings {
+            relays: existing
+                .as_ref()
+                .map(|s| s.relays.clone())
+                .unwrap_or_default(),
+            metadata: existing.as_ref().and_then(|s| s.metadata.clone()),
+            follows: args.follows.clone(),
+        };
+        ss.save_settings(pubkey_hex.clone(), settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let result = if args.publish.unwrap_or(true) {
+            let ac = ensure_client(ks, ss)
+                .await
+                .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+            publish_follows(&ac.client, &args.follows)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        } else {
+            PublishFollowsResult {
+                saved: true,
+                published: false,
+                event_id: None,
+                pubkey: None,
+                success_relays: vec![],
+                failed_relays: std::collections::HashMap::new(),
+            }
+        };
+
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(description = "Get kind 3 follow list for the active key from local settings")]
+    pub async fn nostr_follows_get(
+        &self,
+        _args: Parameters<EmptyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+
+        let active = ks.get_active().await.ok_or_else(|| {
+            ErrorData::invalid_params("no active key; set one with nostr_keys_set_active", None)
+        })?;
+        let pubkey = PublicKey::from_bech32(&active.public_key)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let pubkey_hex = pubkey.to_hex();
+
+        let follows = ss
+            .get_settings(&pubkey_hex)
+            .await
+            .map(|s| s.follows)
+            .unwrap_or_default();
+
+        let content = Content::json(serde_json::json!({
+            "pubkey": active.public_key,
+            "follows": follows,
+            "count": follows.len()
+        }))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Fetch kind 3 follow list from relays for the active key. Updates local settings with fetched data"
+    )]
+    pub async fn nostr_follows_fetch(
+        &self,
+        _args: Parameters<EmptyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+
+        let follows = fetch_follows(&ac.client, &ac.active_pubkey)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let pubkey_hex = ac.active_pubkey.to_hex();
+        let existing = ss.get_settings(&pubkey_hex).await;
+        let settings = KeySettings {
+            relays: existing
+                .as_ref()
+                .map(|s| s.relays.clone())
+                .unwrap_or_default(),
+            metadata: existing.as_ref().and_then(|s| s.metadata.clone()),
+            follows: follows.clone(),
+        };
+        ss.save_settings(pubkey_hex, settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let content = Content::json(serde_json::json!({
+            "pubkey": ac.active_pubkey.to_bech32().unwrap(),
+            "follows": follows,
+            "count": follows.len()
+        }))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Add a follow to the active key's follow list. Adds to existing follows and publishes to relays (default: true). Requires pubkey (hex), optional relay_url, and optional petname. Returns updated follow list and event ID"
+    )]
+    pub async fn nostr_follows_add(
+        &self,
+        Parameters(args): Parameters<AddFollowArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+
+        let active = ks.get_active().await.ok_or_else(|| {
+            ErrorData::invalid_params("no active key; set one with nostr_keys_set_active", None)
+        })?;
+        let pubkey = PublicKey::from_bech32(&active.public_key)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let pubkey_hex = pubkey.to_hex();
+
+        let existing = ss.get_settings(&pubkey_hex).await;
+        let mut follows = existing
+            .as_ref()
+            .map(|s| s.follows.clone())
+            .unwrap_or_default();
+
+        if follows.iter().any(|f| f.pubkey == args.pubkey) {
+            return Err(ErrorData::invalid_params(
+                format!("already following pubkey: {}", args.pubkey),
+                None,
+            ));
+        }
+
+        follows.push(FollowEntry {
+            pubkey: args.pubkey,
+            relay_url: args.relay_url,
+            petname: args.petname,
+        });
+
+        let settings = KeySettings {
+            relays: existing
+                .as_ref()
+                .map(|s| s.relays.clone())
+                .unwrap_or_default(),
+            metadata: existing.as_ref().and_then(|s| s.metadata.clone()),
+            follows: follows.clone(),
+        };
+        ss.save_settings(pubkey_hex.clone(), settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let result = if args.publish.unwrap_or(true) {
+            let ac = ensure_client(ks, ss)
+                .await
+                .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+            publish_follows(&ac.client, &follows)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        } else {
+            PublishFollowsResult {
+                saved: true,
+                published: false,
+                event_id: None,
+                pubkey: None,
+                success_relays: vec![],
+                failed_relays: std::collections::HashMap::new(),
+            }
+        };
+
+        let content = Content::json(serde_json::json!({
+            "follows": follows,
+            "count": follows.len(),
+            "result": result
+        }))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Remove a follow from the active key's follow list by pubkey. Removes from existing follows and publishes to relays (default: true). Returns updated follow list and event ID"
+    )]
+    pub async fn nostr_follows_remove(
+        &self,
+        Parameters(args): Parameters<RemoveFollowArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+
+        let active = ks.get_active().await.ok_or_else(|| {
+            ErrorData::invalid_params("no active key; set one with nostr_keys_set_active", None)
+        })?;
+        let pubkey = PublicKey::from_bech32(&active.public_key)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let pubkey_hex = pubkey.to_hex();
+
+        let existing = ss.get_settings(&pubkey_hex).await;
+        let mut follows = existing
+            .as_ref()
+            .map(|s| s.follows.clone())
+            .unwrap_or_default();
+
+        let original_len = follows.len();
+        follows.retain(|f| f.pubkey != args.pubkey);
+
+        if follows.len() == original_len {
+            return Err(ErrorData::invalid_params(
+                format!("not following pubkey: {}", args.pubkey),
+                None,
+            ));
+        }
+
+        let settings = KeySettings {
+            relays: existing
+                .as_ref()
+                .map(|s| s.relays.clone())
+                .unwrap_or_default(),
+            metadata: existing.as_ref().and_then(|s| s.metadata.clone()),
+            follows: follows.clone(),
+        };
+        ss.save_settings(pubkey_hex.clone(), settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let result = if args.publish.unwrap_or(true) {
+            let ac = ensure_client(ks, ss)
+                .await
+                .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+            publish_follows(&ac.client, &follows)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        } else {
+            PublishFollowsResult {
+                saved: true,
+                published: false,
+                event_id: None,
+                pubkey: None,
+                success_relays: vec![],
+                failed_relays: std::collections::HashMap::new(),
+            }
+        };
+
+        let content = Content::json(serde_json::json!({
+            "follows": follows,
+            "count": follows.len(),
+            "result": result
+        }))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
 }
 
 #[tool_handler]
@@ -673,7 +951,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
                     .to_string(),
             ),
         }

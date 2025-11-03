@@ -30,11 +30,22 @@ pub struct ProfileMetadata {
     pub website: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct FollowEntry {
+    pub pubkey: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub petname: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct KeySettings {
     pub relays: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<ProfileMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub follows: Vec<FollowEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]

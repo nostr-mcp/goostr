@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::GoostrError;
 use crate::keys::KeyStore;
 use crate::secrets;
 use crate::settings::SettingsStore;
@@ -22,7 +22,7 @@ static BUILD_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 async fn build_from_keystore(
     ks: &KeyStore,
     settings_store: &SettingsStore,
-) -> Result<Option<ActiveClient>, Error> {
+) -> Result<Option<ActiveClient>, GoostrError> {
     let active = ks.get_active().await;
     let Some(active_entry) = active else {
         return Ok(None);
@@ -76,7 +76,7 @@ async fn build_from_keystore(
 pub async fn ensure_client(
     ks: Arc<KeyStore>,
     settings_store: Arc<SettingsStore>,
-) -> Result<ActiveClient, Error> {
+) -> Result<ActiveClient, GoostrError> {
     let cell = CLIENT_CELL
         .get_or_try_init(|| async {
             Ok::<RwLock<Option<ActiveClient>>, anyhow::Error>(RwLock::new(None))
@@ -114,13 +114,13 @@ pub async fn ensure_client(
         info!("nostr client initialized for active key");
         Ok(ac)
     } else {
-        Err(Error::invalid(
+        Err(GoostrError::invalid(
             "no active nostr key; set one with nostr_keys_set_active",
         ))
     }
 }
 
-pub async fn reset_cached_client() -> Result<(), Error> {
+pub async fn reset_cached_client() -> Result<(), GoostrError> {
     if let Some(cell) = CLIENT_CELL.get() {
         let mut w = cell.write().await;
         *w = None;

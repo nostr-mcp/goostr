@@ -113,7 +113,24 @@ All tool names are stable and lowercase.
     - `to_relays` (optional): Specific relay URLs to publish to
   - **Returns**: Event ID, pubkey that signed it, success/failed relays
   - **Note**: Follows NIP-25 specification for reactions
-- `nostr_events_post_comment` - Post a kind=1111 comment event with threaded discussion support
+- `nostr_events_post_reply` - **Smart unified reply** that automatically chooses the correct protocol
+  - **Auto-selection**: Uses NIP-10 (kind 1) for text notes, NIP-22 (kind 1111) for all other content
+  - **Parameters**:
+    - `content` (required): Reply/comment text
+    - `reply_to_id` (required): Hex-encoded ID of the event to reply to
+    - `reply_to_pubkey` (required): Hex-encoded pubkey of the event author
+    - `reply_to_kind` (required): Kind number of the target event (u16)
+    - `root_event_id` (optional): Hex-encoded ID of thread root (for nested replies to kind 1)
+    - `root_event_pubkey` (optional): Hex-encoded pubkey of thread root author
+    - `mentioned_pubkeys` (optional): Array of hex pubkeys to mention/notify
+    - `relay_hint` (optional): URL hint where events can be found
+    - `pow` (optional): Proof of work difficulty (u8)
+    - `to_relays` (optional): Specific relay URLs to publish to
+  - **Returns**: Event ID, pubkey that signed it, success/failed relays, and the kind used
+  - **Behavior**:
+    - **Kind 1 target**: Creates kind 1 reply with NIP-10 markers (visible in all clients)
+    - **Other kinds**: Creates kind 1111 comment with NIP-22 structure (for articles, files, etc.)
+- `nostr_events_post_comment` - Post a kind=1111 comment event (explicit NIP-22)
   - **Parameters**:
     - `content` (required): Comment text
     - `root_event_id` (required): Hex-encoded ID of the root content event
@@ -126,7 +143,7 @@ All tool names are stable and lowercase.
     - `pow` (optional): Proof of work difficulty (u8)
     - `to_relays` (optional): Specific relay URLs to publish to
   - **Returns**: Event ID, pubkey that signed it, success/failed relays
-  - **Note**: Follows NIP-22 specification for comments. For top-level comments, omit parent parameters. For nested replies, provide both root and parent information.
+  - **Note**: Follows NIP-22 specification. Use `nostr_events_post_reply` instead for automatic protocol selection.
 
 ### Metadata Operations
 - `nostr_metadata_set` - Set kind 0 metadata (profile) for the active key
@@ -153,6 +170,46 @@ All tool names are stable and lowercase.
 - `30023` - Long-form content (article)
 - See [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) for more kinds
 
+## Reply Protocol Auto-Selection
+
+Goostr intelligently chooses between **NIP-10** and **NIP-22** based on the target event kind:
+
+### NIP-10 vs NIP-22 Decision Matrix
+
+| Target Event Kind | Protocol Used | Event Kind Created | Visibility |
+|-------------------|---------------|-------------------|------------|
+| Kind 1 (text note) | **NIP-10** | Kind 1 (reply) | ✅ Universal - all clients |
+| Kind 30023 (article) | **NIP-22** | Kind 1111 (comment) | ⚠️ Clients with NIP-22 support |
+| Kind 1063 (file) | **NIP-22** | Kind 1111 (comment) | ⚠️ Clients with NIP-22 support |
+| Any other kind | **NIP-22** | Kind 1111 (comment) | ⚠️ Clients with NIP-22 support |
+
+### When to Use Each Tool
+
+**Use `nostr_events_post_reply` (RECOMMENDED):**
+- ✅ Automatically selects the right protocol
+- ✅ Best for general use cases
+- ✅ Ensures maximum compatibility
+
+**Use `nostr_events_post_comment` (ADVANCED):**
+- Only when you specifically need NIP-22 (kind 1111) comments
+- For explicit control over comment structure
+- For nested comment threading on non-text content
+
+### Protocol Details
+
+**NIP-10 (Kind 1 Replies):**
+- Used for replying to text notes (kind 1)
+- Creates another kind 1 event with special `e` tags
+- Tags include `"root"` and `"reply"` markers
+- Visible in **all Nostr clients** (Snort, Primal, Damus, etc.)
+
+**NIP-22 (Kind 1111 Comments):**
+- Used for commenting on articles, files, and other content
+- Creates a kind 1111 event with uppercase/lowercase tag hierarchy
+- Uppercase tags (`E`, `K`, `P`) reference the root content
+- Lowercase tags (`e`, `k`, `p`) reference the parent item
+- Visible in clients with **NIP-22 support**
+
 ## Active Key Enforcement
 
 **All signing operations use only the currently active key.**
@@ -175,7 +232,7 @@ When you post a text note or publish metadata, goostr ensures that:
 
 **Verification:**
 
-All signing operations (`nostr_events_post_text`, `nostr_events_post_reaction`, `nostr_events_post_comment`, `nostr_metadata_set`) return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
+All signing operations (`nostr_events_post_text`, `nostr_events_post_reaction`, `nostr_events_post_reply`, `nostr_events_post_comment`, `nostr_metadata_set`) return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
 
 **Example workflow:**
 

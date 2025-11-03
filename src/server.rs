@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::GoostrError;
 use crate::keys::{
     derive_public_from_private, verify_key, DerivePublicArgs, EmptyArgs, ExportArgs, GenerateArgs,
     ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs, VerifyArgs,
@@ -288,7 +288,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         set_relays(&ac.client, args)
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
@@ -322,7 +322,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         connect_relays(&ac.client, args)
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
@@ -344,7 +344,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         disconnect_relays(&ac.client, args)
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
@@ -376,7 +376,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         let rows = list_relays(&ac.client)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -398,7 +398,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
 
         let since_ts = args.since.map(Timestamp::from);
         let until_ts = args.until.map(Timestamp::from);
@@ -487,7 +487,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         let result = post_text_note(&ac.client, args)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -506,8 +506,27 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         let result = post_reaction(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Post a reply/comment using the active key. Automatically uses NIP-10 (kind 1 reply) for kind 1 text notes, or NIP-22 (kind 1111 comment) for all other content types. Use reply_to_id, reply_to_pubkey, and reply_to_kind to specify the target. For threaded replies to kind 1 notes, optionally provide root_event_id and root_event_pubkey. Returns the event ID and pubkey that signed it for verification. Optional: root_event_id (hex), root_event_pubkey (hex), mentioned_pubkeys (hex array), relay_hint (url), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_events_post_reply(
+        &self,
+        Parameters(args): Parameters<PostReplyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = post_reply(&ac.client, args)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let content = Content::json(serde_json::json!(result))?;
@@ -525,7 +544,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks, ss.clone())
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
         let result = post_comment(&ac.client, args)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -567,7 +586,7 @@ impl GoostrServer {
         let result = if args.publish.unwrap_or(true) {
             let ac = ensure_client(ks, ss)
                 .await
-                .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+                .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
             publish_metadata(&ac.client, &profile)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
@@ -621,7 +640,7 @@ impl GoostrServer {
         let ss = Self::settings_store().await?;
         let ac = ensure_client(ks.clone(), ss)
             .await
-            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
 
         let target_pubkey = if let Some(label) = args.label {
             let keys = ks.list().await;
@@ -654,7 +673,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_reaction, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
                     .to_string(),
             ),
         }

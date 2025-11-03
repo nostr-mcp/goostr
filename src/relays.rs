@@ -105,6 +105,55 @@ pub struct PostGroupChatArgs {
     pub to_relays: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct PollOption {
+    pub option_id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreatePollArgs {
+    pub question: String,
+    pub options: Vec<PollOption>,
+    pub relay_urls: Vec<String>,
+    pub poll_type: Option<String>,
+    pub ends_at: Option<u64>,
+    pub pow: Option<u8>,
+    pub to_relays: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct VotePollArgs {
+    pub poll_event_id: String,
+    pub option_ids: Vec<String>,
+    pub pow: Option<u8>,
+    pub to_relays: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetPollResultsArgs {
+    pub poll_event_id: String,
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PollResultOption {
+    pub option_id: String,
+    pub label: String,
+    pub votes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PollResults {
+    pub poll_id: String,
+    pub question: String,
+    pub poll_type: String,
+    pub total_votes: u64,
+    pub options: Vec<PollResultOption>,
+    pub ended: bool,
+    pub ends_at: Option<u64>,
+}
+
 pub async fn set_relays(client: &Client, args: RelaysSetArgs) -> Result<()> {
     let rw = args
         .read_write
@@ -604,4 +653,208 @@ pub async fn post_comment(client: &Client, args: PostCommentArgs) -> Result<Send
     }
 
     publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn create_poll(client: &Client, args: CreatePollArgs) -> Result<SendResult> {
+    use crate::error::GoostrError;
+
+    if args.options.len() < 2 {
+        return Err(GoostrError::Invalid("poll must have at least 2 options".to_string()).into());
+    }
+
+    let mut option_ids = std::collections::HashSet::new();
+    for option in &args.options {
+        if !option_ids.insert(&option.option_id) {
+            return Err(GoostrError::Invalid(format!(
+                "duplicate option ID: {}",
+                option.option_id
+            ))
+            .into());
+        }
+    }
+
+    let mut tags = Vec::new();
+
+    for option in &args.options {
+        tags.push(Tag::parse(&[
+            "option".to_string(),
+            option.option_id.clone(),
+            option.label.clone(),
+        ])?);
+    }
+
+    for relay_url in &args.relay_urls {
+        tags.push(Tag::parse(&["relay".to_string(), relay_url.clone()])?);
+    }
+
+    let poll_type = args.poll_type.as_deref().unwrap_or("singlechoice");
+    tags.push(Tag::parse(&["polltype".to_string(), poll_type.to_string()])?);
+
+    if let Some(ends_at) = args.ends_at {
+        tags.push(Tag::parse(&["endsAt".to_string(), ends_at.to_string()])?);
+    }
+
+    let mut builder = EventBuilder::new(Kind::from(1068), args.question).tags(tags);
+
+    if let Some(pow) = args.pow {
+        builder = builder.pow(pow);
+    }
+
+    publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn vote_poll(client: &Client, args: VotePollArgs) -> Result<SendResult> {
+    use crate::error::GoostrError;
+
+    if args.option_ids.is_empty() {
+        return Err(GoostrError::Invalid("must select at least one option".to_string()).into());
+    }
+
+    let poll_event_id = EventId::from_hex(&args.poll_event_id)
+        .map_err(|e| GoostrError::InvalidEventId(format!("{}: {}", args.poll_event_id, e)))?;
+
+    let mut tags = Vec::new();
+
+    tags.push(Tag::parse(&["e".to_string(), poll_event_id.to_hex()])?);
+
+    for option_id in &args.option_ids {
+        tags.push(Tag::parse(&["response".to_string(), option_id.clone()])?);
+    }
+
+    let mut builder = EventBuilder::new(Kind::from(1018), "").tags(tags);
+
+    if let Some(pow) = args.pow {
+        builder = builder.pow(pow);
+    }
+
+    publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn get_poll_results(
+    client: &Client,
+    poll_event_id: &str,
+    timeout_secs: u64,
+) -> Result<PollResults> {
+    use crate::error::GoostrError;
+
+    let poll_id = EventId::from_hex(poll_event_id)
+        .map_err(|e| GoostrError::InvalidEventId(format!("{}: {}", poll_event_id, e)))?;
+
+    let poll_filter = Filter::new().id(poll_id).kind(Kind::from(1068)).limit(1);
+
+    let poll_events = client
+        .fetch_events(poll_filter, std::time::Duration::from_secs(timeout_secs))
+        .await?;
+
+    let poll_event = poll_events
+        .iter()
+        .next()
+        .ok_or_else(|| GoostrError::Invalid("poll not found".to_string()))?;
+
+    let mut options_map: HashMap<String, String> = HashMap::new();
+    let mut relay_urls = Vec::new();
+    let mut poll_type = "singlechoice".to_string();
+    let mut ends_at: Option<u64> = None;
+
+    for tag in poll_event.tags.iter() {
+        let tag_vec = tag.clone().to_vec();
+        if tag_vec.is_empty() {
+            continue;
+        }
+
+        match tag_vec[0].as_str() {
+            "option" if tag_vec.len() >= 3 => {
+                options_map.insert(tag_vec[1].clone(), tag_vec[2].clone());
+            }
+            "relay" if tag_vec.len() >= 2 => {
+                relay_urls.push(tag_vec[1].clone());
+            }
+            "polltype" if tag_vec.len() >= 2 => {
+                poll_type = tag_vec[1].clone();
+            }
+            "endsAt" if tag_vec.len() >= 2 => {
+                if let Ok(timestamp) = tag_vec[1].parse::<u64>() {
+                    ends_at = Some(timestamp);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let vote_filter = Filter::new()
+        .kind(Kind::from(1018))
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::E), poll_id.to_hex());
+
+    let vote_events = client
+        .fetch_events(vote_filter, std::time::Duration::from_secs(timeout_secs))
+        .await?;
+
+    let mut vote_counts: HashMap<String, u64> = HashMap::new();
+    let mut votes_by_pubkey: HashMap<String, (u64, Vec<String>)> = HashMap::new();
+
+    let now = Timestamp::now().as_u64();
+    let ended = ends_at.map_or(false, |end_time| now > end_time);
+
+    for vote_event in vote_events.iter() {
+        let vote_time = vote_event.created_at.as_u64();
+
+        if let Some(end_time) = ends_at {
+            if vote_time > end_time {
+                continue;
+            }
+        }
+
+        let pubkey = vote_event.pubkey.to_hex();
+        let mut selected_options = Vec::new();
+
+        for tag in vote_event.tags.iter() {
+            let tag_vec = tag.clone().to_vec();
+            if tag_vec.len() >= 2 && tag_vec[0] == "response" {
+                selected_options.push(tag_vec[1].clone());
+            }
+        }
+
+        if selected_options.is_empty() {
+            continue;
+        }
+
+        if let Some((existing_time, _)) = votes_by_pubkey.get(&pubkey) {
+            if vote_time <= *existing_time {
+                continue;
+            }
+        }
+
+        votes_by_pubkey.insert(pubkey, (vote_time, selected_options));
+    }
+
+    for (_, (_time, selected_options)) in votes_by_pubkey.iter() {
+        for option_id in selected_options {
+            if options_map.contains_key(option_id) {
+                *vote_counts.entry(option_id.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let total_votes = votes_by_pubkey.len() as u64;
+
+    let mut options: Vec<PollResultOption> = options_map
+        .into_iter()
+        .map(|(option_id, label)| PollResultOption {
+            option_id: option_id.clone(),
+            label,
+            votes: *vote_counts.get(&option_id).unwrap_or(&0),
+        })
+        .collect();
+
+    options.sort_by(|a, b| a.option_id.cmp(&b.option_id));
+
+    Ok(PollResults {
+        poll_id: poll_event_id.to_string(),
+        question: poll_event.content.clone(),
+        poll_type,
+        total_votes,
+        options,
+        ended,
+        ends_at,
+    })
 }

@@ -600,6 +600,63 @@ impl GoostrServer {
     }
 
     #[tool(
+        description = "Create a kind=1068 poll using the active key (NIP-88). Polls allow users to vote on questions with multiple options. Requires question, options array (each with option_id and label), and relay_urls array where responses should be published. Returns the event ID and pubkey that signed it for verification. Optional: poll_type ('singlechoice' or 'multiplechoice', default: 'singlechoice'), ends_at (unix timestamp), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_events_create_poll(
+        &self,
+        Parameters(args): Parameters<CreatePollArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = create_poll(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Vote on a kind=1068 poll using the active key (NIP-88). Creates a kind=1018 poll response event. Requires poll_event_id and option_ids array (single option for singlechoice, multiple for multiplechoice). Returns the event ID and pubkey that signed it for verification. Optional: pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_events_vote_poll(
+        &self,
+        Parameters(args): Parameters<VotePollArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = vote_poll(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Get results for a kind=1068 poll (NIP-88). Fetches the poll and all kind=1018 responses, counts votes (one per pubkey, most recent wins), and returns results with vote counts per option. Respects poll end time if set. Returns poll details, vote counts, and whether poll has ended. Optional: timeout_secs (default: 10)"
+    )]
+    pub async fn nostr_events_get_poll_results(
+        &self,
+        Parameters(args): Parameters<GetPollResultsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let results = get_poll_results(&ac.client, &args.poll_event_id, args.timeout_secs.unwrap_or(10))
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(results))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
         description = "Set kind 0 metadata (profile) for the active key. All fields are optional. Set publish=true to broadcast to relays immediately using the active key (default: true). Returns the pubkey that signed the metadata event for verification"
     )]
     pub async fn nostr_metadata_set(
@@ -989,7 +1046,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_thread, nostr_events_post_group_chat, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_thread, nostr_events_post_group_chat, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_events_create_poll, nostr_events_vote_poll, nostr_events_get_poll_results, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
                     .to_string(),
             ),
         }

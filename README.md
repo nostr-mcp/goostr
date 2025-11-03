@@ -97,6 +97,39 @@ All tool names are stable and lowercase.
     - `author_npub` (required for `by_author`, optional for `by_kind`): Author's npub
   - **Note**: All presets default to looking back 7 days if `since` is not specified
 - `nostr_events_post_text` - Post a new kind=1 text note to configured relays
+  - **Parameters**:
+    - `content` (required): Text content of the note
+    - `pow` (optional): Proof of work difficulty (u8)
+    - `to_relays` (optional): Specific relay URLs to publish to
+  - **Returns**: Event ID, pubkey that signed it, success/failed relays
+- `nostr_events_post_reaction` - Post a kind=7 reaction event (like, emoji) to another event
+  - **Parameters**:
+    - `event_id` (required): Hex-encoded ID of the event to react to
+    - `event_pubkey` (required): Hex-encoded pubkey of the event author
+    - `content` (optional): Reaction content - `+` (like, default), `-` (dislike), or emoji
+    - `event_kind` (optional): Kind number of the event being reacted to (u16)
+    - `relay_hint` (optional): URL hint where the target event can be found
+    - `pow` (optional): Proof of work difficulty (u8)
+    - `to_relays` (optional): Specific relay URLs to publish to
+  - **Returns**: Event ID, pubkey that signed it, success/failed relays
+  - **Note**: Follows NIP-25 specification for reactions
+
+### Metadata Operations
+- `nostr_metadata_set` - Set kind 0 metadata (profile) for the active key
+  - **Parameters**: All optional
+    - `name`: Display name
+    - `display_name`: Full display name
+    - `about`: Bio/description
+    - `picture`: Avatar URL
+    - `banner`: Banner image URL
+    - `nip05`: NIP-05 identifier (username@domain.com)
+    - `lud06`: Lightning address (LNURL)
+    - `lud16`: Lightning address (user@domain.com)
+    - `website`: Website URL
+    - `publish` (default: true): Broadcast to relays immediately
+  - **Returns**: Event ID, pubkey that signed it, success/failed relays
+- `nostr_metadata_get` - Get kind 0 metadata for the active key from local settings
+- `nostr_metadata_fetch` - Fetch kind 0 metadata from relays for a key (uses active key if no label specified)
 
 ### Common Event Kinds
 - `1` - Text note (short text note)
@@ -127,7 +160,7 @@ When you post a text note or publish metadata, goostr ensures that:
 
 **Verification:**
 
-Both `nostr_events_post_text` and `nostr_metadata_set` return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
+All signing operations (`nostr_events_post_text`, `nostr_events_post_reaction`, `nostr_metadata_set`) return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
 
 **Example workflow:**
 

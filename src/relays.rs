@@ -46,6 +46,17 @@ pub struct PostTextArgs {
     pub to_relays: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PostReactionArgs {
+    pub event_id: String,
+    pub event_pubkey: String,
+    pub content: Option<String>,
+    pub event_kind: Option<u16>,
+    pub relay_hint: Option<String>,
+    pub pow: Option<u8>,
+    pub to_relays: Option<Vec<String>>,
+}
+
 pub async fn set_relays(client: &Client, args: RelaysSetArgs) -> Result<()> {
     let rw = args
         .read_write
@@ -208,5 +219,22 @@ pub async fn post_text_note(client: &Client, args: PostTextArgs) -> Result<SendR
     if let Some(pow) = args.pow {
         builder = builder.pow(pow);
     }
+    publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn post_reaction(client: &Client, args: PostReactionArgs) -> Result<SendResult> {
+    let event_id = EventId::from_hex(&args.event_id)?;
+    let event_pubkey = PublicKey::from_hex(&args.event_pubkey)?;
+
+    let content = args.content.unwrap_or_else(|| "+".to_string());
+
+    let event_kind = args.event_kind.map(Kind::from);
+
+    let mut builder = EventBuilder::reaction_extended(event_id, event_pubkey, event_kind, content);
+
+    if let Some(pow) = args.pow {
+        builder = builder.pow(pow);
+    }
+
     publish_event_builder(client, builder, args.to_relays).await
 }

@@ -3,6 +3,7 @@ pub mod config;
 pub mod error;
 pub mod keys;
 pub mod logging;
+pub mod metadata;
 pub mod nostr_client;
 pub mod relays;
 pub mod secrets;

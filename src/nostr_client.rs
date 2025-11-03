@@ -44,7 +44,6 @@ async fn build_from_keystore(
             .build()
     };
 
-    // Load relay settings for this key and auto-connect
     let pubkey_hex = pubkey.to_hex();
     if let Some(settings) = settings_store.get_settings(&pubkey_hex).await {
         if !settings.relays.is_empty() {
@@ -61,7 +60,6 @@ async fn build_from_keystore(
                     }
                 }
             }
-            // Connect to all relays
             client.connect().await;
         }
     }

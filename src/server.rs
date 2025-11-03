@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::keys::{
     EmptyArgs, GenerateArgs, ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs,
 };
+use crate::metadata::*;
 use crate::nostr_client::{ensure_client, reset_cached_client};
 use crate::relays::*;
 use crate::settings::{KeySettings, SettingsStore};
@@ -250,11 +251,12 @@ impl GoostrServer {
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-        // Save relay URLs to settings
         let relay_urls = get_relay_urls(&ac.client).await;
         let pubkey_hex = ac.active_pubkey.to_hex();
+        let existing = ss.get_settings(&pubkey_hex).await;
         let settings = KeySettings {
             relays: relay_urls.clone(),
+            metadata: existing.and_then(|s| s.metadata),
         };
         ss.save_settings(pubkey_hex, settings)
             .await
@@ -305,11 +307,12 @@ impl GoostrServer {
             .await
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-        // Save relay URLs to settings after disconnect
         let relay_urls = get_relay_urls(&ac.client).await;
         let pubkey_hex = ac.active_pubkey.to_hex();
+        let existing = ss.get_settings(&pubkey_hex).await;
         let settings = KeySettings {
             relays: relay_urls.clone(),
+            metadata: existing.and_then(|s| s.metadata),
         };
         ss.save_settings(pubkey_hex, settings)
             .await
@@ -355,7 +358,6 @@ impl GoostrServer {
             .await
             .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
 
-        // Convert optional timestamps from u64 to Timestamp
         let since_ts = args.since.map(Timestamp::from);
         let until_ts = args.until.map(Timestamp::from);
 
@@ -376,7 +378,6 @@ impl GoostrServer {
                 let pk = PublicKey::from_bech32(npub_ref)
                     .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
 
-                // Default to looking back 7 days if no since time specified
                 let default_since = Timestamp::now() - 86400 * 7;
                 let mut f = Filter::new()
                     .author(pk)
@@ -392,7 +393,6 @@ impl GoostrServer {
                     ErrorData::invalid_params("kind is required for preset 'by_kind'", None)
                 })?;
 
-                // Default to looking back 7 days if no since time specified
                 let default_since = Timestamp::now() - 86400 * 7;
                 let mut f = Filter::new()
                     .kind(Kind::from(kind_num))
@@ -402,7 +402,6 @@ impl GoostrServer {
                     f = f.until(u);
                 }
 
-                // Optionally filter by author if provided
                 if let Some(npub_ref) = &args.author_npub {
                     let pk = PublicKey::from_bech32(npub_ref)
                         .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
@@ -453,6 +452,117 @@ impl GoostrServer {
         let content = Content::json(serde_json::json!(result))?;
         Ok(CallToolResult::success(vec![content]))
     }
+
+    #[tool(
+        description = "Set kind 0 metadata (profile) for the active key. All fields are optional. Set publish=true to broadcast to relays immediately (default: true)"
+    )]
+    pub async fn nostr_metadata_set(
+        &self,
+        Parameters(args): Parameters<SetMetadataArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+
+        let active = ks.get_active().await.ok_or_else(|| {
+            ErrorData::invalid_params("no active key; set one with nostr_keys_set_active", None)
+        })?;
+        let pubkey = PublicKey::from_bech32(&active.public_key)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let pubkey_hex = pubkey.to_hex();
+
+        let profile = args_to_profile(&args);
+
+        let existing = ss.get_settings(&pubkey_hex).await;
+        let settings = KeySettings {
+            relays: existing
+                .as_ref()
+                .map(|s| s.relays.clone())
+                .unwrap_or_default(),
+            metadata: Some(profile.clone()),
+        };
+        ss.save_settings(pubkey_hex.clone(), settings)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let result = if args.publish.unwrap_or(true) {
+            let ac = ensure_client(ks, ss)
+                .await
+                .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+            publish_metadata(&ac.client, &profile)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        } else {
+            MetadataResult {
+                saved: true,
+                published: false,
+                event_id: None,
+                success_relays: vec![],
+                failed_relays: std::collections::HashMap::new(),
+            }
+        };
+
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(description = "Get kind 0 metadata (profile) for the active key from local settings")]
+    pub async fn nostr_metadata_get(
+        &self,
+        _args: Parameters<EmptyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+
+        let active = ks.get_active().await.ok_or_else(|| {
+            ErrorData::invalid_params("no active key; set one with nostr_keys_set_active", None)
+        })?;
+        let pubkey = PublicKey::from_bech32(&active.public_key)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let pubkey_hex = pubkey.to_hex();
+
+        let metadata = ss.get_settings(&pubkey_hex).await.and_then(|s| s.metadata);
+
+        let content = Content::json(serde_json::json!({
+            "pubkey": active.public_key,
+            "metadata": metadata
+        }))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Fetch kind 0 metadata (profile) from relays for a key. Uses active key if no label specified."
+    )]
+    pub async fn nostr_metadata_fetch(
+        &self,
+        Parameters(args): Parameters<FetchMetadataArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks.clone(), ss)
+            .await
+            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+
+        let target_pubkey = if let Some(label) = args.label {
+            let keys = ks.list().await;
+            let entry = keys.iter().find(|k| k.label == label).ok_or_else(|| {
+                ErrorData::invalid_params(format!("key with label '{}' not found", label), None)
+            })?;
+            PublicKey::from_bech32(&entry.public_key)
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        } else {
+            ac.active_pubkey
+        };
+
+        let metadata = fetch_metadata(&ac.client, &target_pubkey)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let content = Content::json(serde_json::json!({
+            "pubkey": target_pubkey.to_bech32().unwrap(),
+            "metadata": metadata
+        }))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
 }
 
 #[tool_handler]
@@ -463,7 +573,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
                     .to_string(),
             ),
         }

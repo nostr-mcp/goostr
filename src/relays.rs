@@ -115,14 +115,12 @@ pub async fn list_relays(client: &Client) -> Result<Vec<RelayStatusRow>> {
     Ok(out)
 }
 
-/// Extract relay URLs from the client for persistence
 pub async fn get_relay_urls(client: &Client) -> Vec<String> {
     let map = client.relays().await;
     map.keys().map(|url| url.to_string()).collect()
 }
 
 pub async fn subscription_targets_my_notes(pk: PublicKey, since: Option<Timestamp>, until: Option<Timestamp>) -> Filter {
-    // Default to looking back 7 days if no since time specified
     let default_since = Timestamp::now() - 86400 * 7;
     let mut filter = Filter::new()
         .author(pk)
@@ -136,7 +134,6 @@ pub async fn subscription_targets_my_notes(pk: PublicKey, since: Option<Timestam
 }
 
 pub async fn subscription_targets_mentions_me(pk: PublicKey, since: Option<Timestamp>, until: Option<Timestamp>) -> Filter {
-    // Default to looking back 7 days if no since time specified
     let default_since = Timestamp::now() - 86400 * 7;
     let needle = pk.to_string();
     let mut filter = Filter::new()

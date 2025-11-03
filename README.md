@@ -113,6 +113,20 @@ All tool names are stable and lowercase.
     - `to_relays` (optional): Specific relay URLs to publish to
   - **Returns**: Event ID, pubkey that signed it, success/failed relays
   - **Note**: Follows NIP-25 specification for reactions
+- `nostr_events_post_comment` - Post a kind=1111 comment event with threaded discussion support
+  - **Parameters**:
+    - `content` (required): Comment text
+    - `root_event_id` (required): Hex-encoded ID of the root content event
+    - `root_event_pubkey` (required): Hex-encoded pubkey of the root content author
+    - `root_event_kind` (required): Kind number of the root content (u16)
+    - `parent_event_id` (optional): Hex-encoded ID of parent comment (for nested replies)
+    - `parent_event_pubkey` (optional): Hex-encoded pubkey of parent comment author
+    - `parent_event_kind` (optional): Kind number of parent comment (u16, typically 1111)
+    - `relay_hint` (optional): URL hint where events can be found
+    - `pow` (optional): Proof of work difficulty (u8)
+    - `to_relays` (optional): Specific relay URLs to publish to
+  - **Returns**: Event ID, pubkey that signed it, success/failed relays
+  - **Note**: Follows NIP-22 specification for comments. For top-level comments, omit parent parameters. For nested replies, provide both root and parent information.
 
 ### Metadata Operations
 - `nostr_metadata_set` - Set kind 0 metadata (profile) for the active key
@@ -135,6 +149,7 @@ All tool names are stable and lowercase.
 - `1` - Text note (short text note)
 - `3` - Contacts (follow list)
 - `7` - Reaction (like, emoji reaction)
+- `1111` - Comment (threaded discussions on any content)
 - `30023` - Long-form content (article)
 - See [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) for more kinds
 
@@ -160,7 +175,7 @@ When you post a text note or publish metadata, goostr ensures that:
 
 **Verification:**
 
-All signing operations (`nostr_events_post_text`, `nostr_events_post_reaction`, `nostr_metadata_set`) return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
+All signing operations (`nostr_events_post_text`, `nostr_events_post_reaction`, `nostr_events_post_comment`, `nostr_metadata_set`) return the `pubkey` that signed the event, allowing you to verify that the correct key was used.
 
 **Example workflow:**
 

@@ -57,6 +57,20 @@ pub struct PostReactionArgs {
     pub to_relays: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PostCommentArgs {
+    pub content: String,
+    pub root_event_id: String,
+    pub root_event_pubkey: String,
+    pub root_event_kind: u16,
+    pub parent_event_id: Option<String>,
+    pub parent_event_pubkey: Option<String>,
+    pub parent_event_kind: Option<u16>,
+    pub relay_hint: Option<String>,
+    pub pow: Option<u8>,
+    pub to_relays: Option<Vec<String>>,
+}
+
 pub async fn set_relays(client: &Client, args: RelaysSetArgs) -> Result<()> {
     let rw = args
         .read_write
@@ -231,6 +245,98 @@ pub async fn post_reaction(client: &Client, args: PostReactionArgs) -> Result<Se
     let event_kind = args.event_kind.map(Kind::from);
 
     let mut builder = EventBuilder::reaction_extended(event_id, event_pubkey, event_kind, content);
+
+    if let Some(pow) = args.pow {
+        builder = builder.pow(pow);
+    }
+
+    publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn post_comment(client: &Client, args: PostCommentArgs) -> Result<SendResult> {
+    let root_event_id = EventId::from_hex(&args.root_event_id)?;
+    let root_pubkey = PublicKey::from_hex(&args.root_event_pubkey)?;
+    let root_kind = Kind::from(args.root_event_kind);
+
+    let parent_event_id = if let Some(ref parent_id) = args.parent_event_id {
+        EventId::from_hex(parent_id)?
+    } else {
+        root_event_id
+    };
+
+    let parent_pubkey = if let Some(ref parent_pk) = args.parent_event_pubkey {
+        PublicKey::from_hex(parent_pk)?
+    } else {
+        root_pubkey
+    };
+
+    let parent_kind = if let Some(parent_k) = args.parent_event_kind {
+        Kind::from(parent_k)
+    } else {
+        root_kind
+    };
+
+    let mut tags = Vec::new();
+
+    if let Some(ref relay) = args.relay_hint {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::E, true),
+            vec![root_event_id.to_hex(), relay.clone(), root_pubkey.to_hex()],
+        ));
+    } else {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::E, true),
+            vec![root_event_id.to_hex(), String::new(), root_pubkey.to_hex()],
+        ));
+    }
+
+    tags.push(Tag::custom(
+        TagKind::single_letter(Alphabet::K, true),
+        vec![root_kind.as_u16().to_string()],
+    ));
+
+    if let Some(ref relay) = args.relay_hint {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::P, true),
+            vec![root_pubkey.to_hex(), relay.clone()],
+        ));
+    } else {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::P, true),
+            vec![root_pubkey.to_hex()],
+        ));
+    }
+
+    if let Some(ref relay) = args.relay_hint {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::E, false),
+            vec![parent_event_id.to_hex(), relay.clone()],
+        ));
+    } else {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::E, false),
+            vec![parent_event_id.to_hex()],
+        ));
+    }
+
+    tags.push(Tag::custom(
+        TagKind::Custom(std::borrow::Cow::Borrowed("k")),
+        vec![parent_kind.as_u16().to_string()],
+    ));
+
+    if let Some(ref relay) = args.relay_hint {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::P, false),
+            vec![parent_pubkey.to_hex(), relay.clone()],
+        ));
+    } else {
+        tags.push(Tag::custom(
+            TagKind::single_letter(Alphabet::P, false),
+            vec![parent_pubkey.to_hex()],
+        ));
+    }
+
+    let mut builder = EventBuilder::new(Kind::from(1111), args.content).tags(tags);
 
     if let Some(pow) = args.pow {
         builder = builder.pow(pow);

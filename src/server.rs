@@ -515,6 +515,25 @@ impl GoostrServer {
     }
 
     #[tool(
+        description = "Post a kind=1111 comment event to another event using the active key. Comments support threaded discussions on any content. Use root_event_id, root_event_pubkey, and root_event_kind to specify the root content. For nested comments, also provide parent_event_id, parent_event_pubkey, and parent_event_kind. Returns the event ID and pubkey that signed it for verification. Optional: parent_event_id (hex), parent_event_pubkey (hex), parent_event_kind (u16), relay_hint (url), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_events_post_comment(
+        &self,
+        Parameters(args): Parameters<PostCommentArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: Error| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = post_comment(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
         description = "Set kind 0 metadata (profile) for the active key. All fields are optional. Set publish=true to broadcast to relays immediately using the active key (default: true). Returns the pubkey that signed the metadata event for verification"
     )]
     pub async fn nostr_metadata_set(
@@ -635,7 +654,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_reaction, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_reaction, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
                     .to_string(),
             ),
         }

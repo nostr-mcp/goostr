@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::keys::{
-    EmptyArgs, GenerateArgs, ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs,
+    EmptyArgs, ExportArgs, GenerateArgs, ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs,
+    SetActiveArgs,
 };
 use crate::metadata::*;
 use crate::nostr_client::{ensure_client, reset_cached_client};
@@ -199,6 +200,20 @@ impl GoostrServer {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let content = Content::json(serde_json::json!(entry))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(description = "Export a key in various formats (npub/nsec/hex). Exports active key if label not specified. WARNING: include_private=true will expose your private key")]
+    pub async fn nostr_keys_export(
+        &self,
+        Parameters(args): Parameters<ExportArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let result = ks
+            .export_key(args.label, args.format, args.include_private)
+            .await
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
         Ok(CallToolResult::success(vec![content]))
     }
 
@@ -573,7 +588,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
                     .to_string(),
             ),
         }

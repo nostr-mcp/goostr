@@ -52,6 +52,12 @@ All tool names are stable and lowercase.
 ### Key Management
 - `nostr_keys_generate` - Generate a new Nostr keypair
 - `nostr_keys_import` - Import secret key (nsec or npub)
+- `nostr_keys_export` - Export a key in various formats (npub/nsec/hex)
+  - **Parameters**:
+    - `label` (optional): Key label to export (uses active key if omitted)
+    - `format` (optional): Export format - `bech32` (default), `hex`, or `both`
+    - `include_private` (optional): Include private key in export (default: false)
+  - **Warning**: Setting `include_private=true` will expose your private key. Keep it secure!
 - `nostr_keys_remove` - Remove a key by label
 - `nostr_keys_list` - List all stored keys (metadata only)
 - `nostr_keys_set_active` - Set the active key by label

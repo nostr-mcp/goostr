@@ -181,6 +181,64 @@ impl KeyStore {
         Ok(entry)
     }
 
+    pub async fn export_key(
+        &self,
+        label: Option<String>,
+        format: ExportFormat,
+        include_private: bool,
+    ) -> Result<ExportResult> {
+        let target_label = match label {
+            Some(l) => l,
+            None => {
+                let active = self.get_active().await
+                    .ok_or_else(|| anyhow!("no active key; specify label or set active key"))?;
+                active.label
+            }
+        };
+
+        let data = self.inner.read().await;
+        let entry = data.keys.get(&target_label)
+            .ok_or_else(|| anyhow!("key not found: {}", target_label))?;
+
+        let public_key_bech32 = entry.public_key.clone();
+        let public_key = PublicKey::from_bech32(&public_key_bech32)?;
+
+        let mut result = ExportResult {
+            label: target_label.clone(),
+            public_key_npub: public_key_bech32.clone(),
+            public_key_hex: public_key.to_hex(),
+            private_key_nsec: None,
+            private_key_hex: None,
+            warning: None,
+        };
+
+        if include_private {
+            let secret = secrets::get(&target_label)?
+                .ok_or_else(|| anyhow!("private key not found in secure storage for key: {}", target_label))?;
+            
+            let keys = Keys::parse(&secret)?;
+            
+            match format {
+                ExportFormat::Bech32 => {
+                    result.private_key_nsec = Some(keys.secret_key().to_bech32()?);
+                }
+                ExportFormat::Hex => {
+                    result.private_key_hex = Some(keys.secret_key().to_secret_hex());
+                }
+                ExportFormat::Both => {
+                    result.private_key_nsec = Some(keys.secret_key().to_bech32()?);
+                    result.private_key_hex = Some(keys.secret_key().to_secret_hex());
+                }
+            }
+            
+            result.warning = Some(
+                "WARNING: This export contains your private key. Keep it secure and never share it. Anyone with access to this key can control your Nostr identity.".to_string()
+            );
+        }
+
+        Ok(result)
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -219,3 +277,37 @@ pub struct RenameLabelArgs {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 pub struct EmptyArgs {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportFormat {
+    Bech32,
+    Hex,
+    Both,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ExportResult {
+    pub label: String,
+    pub public_key_npub: String,
+    pub public_key_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_key_nsec: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_key_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExportArgs {
+    pub label: Option<String>,
+    #[serde(default = "default_export_format")]
+    pub format: ExportFormat,
+    #[serde(default)]
+    pub include_private: bool,
+}
+
+fn default_export_format() -> ExportFormat {
+    ExportFormat::Bech32
+}

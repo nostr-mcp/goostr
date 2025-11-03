@@ -657,6 +657,177 @@ impl GoostrServer {
     }
 
     #[tool(
+        description = "Add or update a user in a group using the active key (kind 9000, NIP-29). Moderation event requiring admin privileges. Use pubkey (hex) to specify user and optional roles array (e.g., ['admin', 'moderator']). Returns the event ID and pubkey that signed it for verification. Optional: roles (array), previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_put_user(
+        &self,
+        Parameters(args): Parameters<PutUserArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = put_user(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Remove a user from a group using the active key (kind 9001, NIP-29). Moderation event requiring admin privileges. Use pubkey (hex) to specify user to remove. Returns the event ID and pubkey that signed it for verification. Optional: previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_remove_user(
+        &self,
+        Parameters(args): Parameters<RemoveUserArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = remove_user(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Edit group metadata using the active key (kind 9002, NIP-29). Moderation event requiring admin privileges. Supports partial updates - only include fields to change. Returns the event ID and pubkey that signed it for verification. Optional: name, picture, about, public (bool), open (bool), previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_edit_metadata(
+        &self,
+        Parameters(args): Parameters<EditGroupMetadataArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = edit_group_metadata(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Delete an event from a group using the active key (kind 9005, NIP-29). Moderation event requiring admin privileges. Use event_id (hex) to specify event to delete. Returns the event ID and pubkey that signed it for verification. Optional: previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_delete_event(
+        &self,
+        Parameters(args): Parameters<DeleteEventArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = delete_group_event(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Create a new group using the active key (kind 9007, NIP-29). Moderation event typically used by relay master key. Returns the event ID and pubkey that signed it for verification. Optional: previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_create_group(
+        &self,
+        Parameters(args): Parameters<CreateGroupArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = create_group(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Delete an entire group using the active key (kind 9008, NIP-29). Moderation event requiring admin privileges. Permanently removes the group. Returns the event ID and pubkey that signed it for verification. Optional: previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_delete_group(
+        &self,
+        Parameters(args): Parameters<DeleteGroupArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = delete_group(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Create an invite code for a group using the active key (kind 9009, NIP-29). Moderation event requiring admin privileges. Generated invite can be used with kind 9021 join requests. Returns the event ID and pubkey that signed it for verification. Optional: previous_refs (array), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_create_invite(
+        &self,
+        Parameters(args): Parameters<CreateInviteArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = create_invite(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Request to join a group using the active key (kind 9021, NIP-29). User event requesting admission to a group. For open groups, automatically approved. For closed groups, requires invite code or manual approval. Returns the event ID and pubkey that signed it for verification. Optional: invite_code, pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_join(
+        &self,
+        Parameters(args): Parameters<JoinGroupArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = join_group(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
+        description = "Request to leave a group using the active key (kind 9022, NIP-29). User event requesting removal from group. Relay will automatically issue kind 9001 removal event in response. Returns the event ID and pubkey that signed it for verification. Optional: pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_groups_leave(
+        &self,
+        Parameters(args): Parameters<LeaveGroupArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = leave_group(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
         description = "Set kind 0 metadata (profile) for the active key. All fields are optional. Set publish=true to broadcast to relays immediately using the active key (default: true). Returns the pubkey that signed the metadata event for verification"
     )]
     pub async fn nostr_metadata_set(
@@ -1046,7 +1217,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_thread, nostr_events_post_group_chat, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_events_create_poll, nostr_events_vote_poll, nostr_events_get_poll_results, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_thread, nostr_events_post_group_chat, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_events_create_poll, nostr_events_vote_poll, nostr_events_get_poll_results, nostr_groups_put_user, nostr_groups_remove_user, nostr_groups_edit_metadata, nostr_groups_delete_event, nostr_groups_create_group, nostr_groups_delete_group, nostr_groups_create_invite, nostr_groups_join, nostr_groups_leave, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
                     .to_string(),
             ),
         }

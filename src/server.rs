@@ -524,6 +524,25 @@ impl GoostrServer {
     }
 
     #[tool(
+        description = "Post a kind=9 group chat message using the active key (NIP-C7). Modern standard for group discussions in NIP-29 relay-based groups. Requires content and group_id. For replies, include reply_to_id (and optionally reply_to_relay, reply_to_pubkey). Returns the event ID and pubkey that signed it for verification. Optional: reply_to_id (hex), reply_to_relay (url), reply_to_pubkey (hex), pow (u8), to_relays (urls)"
+    )]
+    pub async fn nostr_events_post_group_chat(
+        &self,
+        Parameters(args): Parameters<PostGroupChatArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ks = Self::keystore().await?;
+        let ss = Self::settings_store().await?;
+        let ac = ensure_client(ks, ss.clone())
+            .await
+            .map_err(|e: GoostrError| ErrorData::invalid_params(e.to_string(), None))?;
+        let result = post_group_chat(&ac.client, args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(
         description = "Post a kind=7 reaction event (like, emoji) to another event using the active key. Content defaults to '+' (like). Use event_id (hex) and event_pubkey (hex) to specify the target event. Returns the event ID and pubkey that signed it for verification. Optional: content (emoji or +/-), event_kind (u16), relay_hint (url), pow (u8), to_relays (urls)"
     )]
     pub async fn nostr_events_post_reaction(
@@ -970,7 +989,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_thread, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_events_post_thread, nostr_events_post_group_chat, nostr_events_post_reaction, nostr_events_post_reply, nostr_events_post_comment, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch, nostr_follows_set, nostr_follows_get, nostr_follows_fetch, nostr_follows_add, nostr_follows_remove"
                     .to_string(),
             ),
         }

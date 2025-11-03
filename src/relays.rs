@@ -94,6 +94,17 @@ pub struct PostThreadArgs {
     pub to_relays: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PostGroupChatArgs {
+    pub content: String,
+    pub group_id: String,
+    pub reply_to_id: Option<String>,
+    pub reply_to_relay: Option<String>,
+    pub reply_to_pubkey: Option<String>,
+    pub pow: Option<u8>,
+    pub to_relays: Option<Vec<String>>,
+}
+
 pub async fn set_relays(client: &Client, args: RelaysSetArgs) -> Result<()> {
     let rw = args
         .read_write
@@ -271,6 +282,40 @@ pub async fn post_thread(client: &Client, args: PostThreadArgs) -> Result<SendRe
     }
 
     let mut builder = EventBuilder::new(Kind::from(11), args.content).tags(tags);
+
+    if let Some(pow) = args.pow {
+        builder = builder.pow(pow);
+    }
+
+    publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn post_group_chat(
+    client: &Client,
+    args: PostGroupChatArgs,
+) -> Result<SendResult> {
+    use crate::error::GoostrError;
+    
+    let mut tags = Vec::new();
+
+    tags.push(Tag::parse(&["h".to_string(), args.group_id.clone()])?);
+
+    if let Some(ref reply_id) = args.reply_to_id {
+        let event_id = EventId::from_hex(reply_id)
+            .map_err(|e| GoostrError::InvalidEventId(format!("{}: {}", reply_id, e)))?;
+        
+        let relay = args.reply_to_relay.as_deref().unwrap_or("");
+        let pubkey = args.reply_to_pubkey.as_deref().unwrap_or("");
+        
+        tags.push(Tag::parse(&[
+            "q".to_string(),
+            event_id.to_hex(),
+            relay.to_string(),
+            pubkey.to_string(),
+        ])?);
+    }
+
+    let mut builder = EventBuilder::new(Kind::from(9), args.content).tags(tags);
 
     if let Some(pow) = args.pow {
         builder = builder.pow(pow);

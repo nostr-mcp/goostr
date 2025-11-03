@@ -85,6 +85,15 @@ pub struct PostReplyArgs {
     pub to_relays: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PostThreadArgs {
+    pub content: String,
+    pub subject: String,
+    pub hashtags: Option<Vec<String>>,
+    pub pow: Option<u8>,
+    pub to_relays: Option<Vec<String>>,
+}
+
 pub async fn set_relays(client: &Client, args: RelaysSetArgs) -> Result<()> {
     let rw = args
         .read_write
@@ -247,6 +256,26 @@ pub async fn post_text_note(client: &Client, args: PostTextArgs) -> Result<SendR
     if let Some(pow) = args.pow {
         builder = builder.pow(pow);
     }
+    publish_event_builder(client, builder, args.to_relays).await
+}
+
+pub async fn post_thread(client: &Client, args: PostThreadArgs) -> Result<SendResult> {
+    let mut tags = Vec::new();
+
+    tags.push(Tag::parse(&["subject".to_string(), args.subject.clone()])?);
+
+    if let Some(hashtags) = args.hashtags {
+        for hashtag in hashtags {
+            tags.push(Tag::parse(&["t".to_string(), hashtag])?);
+        }
+    }
+
+    let mut builder = EventBuilder::new(Kind::from(11), args.content).tags(tags);
+
+    if let Some(pow) = args.pow {
+        builder = builder.pow(pow);
+    }
+
     publish_event_builder(client, builder, args.to_relays).await
 }
 

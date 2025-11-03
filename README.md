@@ -58,6 +58,16 @@ All tool names are stable and lowercase.
     - `format` (optional): Export format - `bech32` (default), `hex`, or `both`
     - `include_private` (optional): Include private key in export (default: false)
   - **Warning**: Setting `include_private=true` will expose your private key. Keep it secure!
+- `nostr_keys_verify` - Verify a Nostr key format and validity
+  - **Parameters**:
+    - `key` (required): Key string to verify (npub, nsec, or 64-char hex)
+  - **Returns**: Key type, validity status, and derived public key if valid
+  - **Use cases**: Validate before import, check key format, verify checksums
+- `nostr_keys_get_public_from_private` - Derive public key from a private key
+  - **Parameters**:
+    - `private_key` (required): Private key in nsec or hex format
+  - **Returns**: Public key in both npub and hex formats
+  - **Use cases**: Key recovery, verification, migration
 - `nostr_keys_remove` - Remove a key by label
 - `nostr_keys_list` - List all stored keys (metadata only)
 - `nostr_keys_set_active` - Set the active key by label

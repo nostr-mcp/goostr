@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::keys::{
-    EmptyArgs, ExportArgs, GenerateArgs, ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs,
-    SetActiveArgs,
+    derive_public_from_private, verify_key, DerivePublicArgs, EmptyArgs, ExportArgs, GenerateArgs,
+    ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs, VerifyArgs,
 };
 use crate::metadata::*;
 use crate::nostr_client::{ensure_client, reset_cached_client};
@@ -212,6 +212,27 @@ impl GoostrServer {
         let result = ks
             .export_key(args.label, args.format, args.include_private)
             .await
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(description = "Verify a Nostr key format and validity. Checks if a string is a valid npub, nsec, or hex key")]
+    pub async fn nostr_keys_verify(
+        &self,
+        Parameters(args): Parameters<VerifyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let result = verify_key(&args.key);
+        let content = Content::json(serde_json::json!(result))?;
+        Ok(CallToolResult::success(vec![content]))
+    }
+
+    #[tool(description = "Derive public key from a private key. Accepts nsec or hex private key format")]
+    pub async fn nostr_keys_get_public_from_private(
+        &self,
+        Parameters(args): Parameters<DerivePublicArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let result = derive_public_from_private(&args.private_key)
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
         let content = Content::json(serde_json::json!(result))?;
         Ok(CallToolResult::success(vec![content]))
@@ -588,7 +609,7 @@ impl ServerHandler for GoostrServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
+                "Tools: nostr_keys_generate, nostr_keys_import, nostr_keys_export, nostr_keys_verify, nostr_keys_get_public_from_private, nostr_keys_remove, nostr_keys_list, nostr_keys_set_active, nostr_keys_active, nostr_keys_rename_label, nostr_config_dir, nostr_relays_set, nostr_relays_connect, nostr_relays_disconnect, nostr_relays_status, nostr_events_list, nostr_events_post_text, nostr_metadata_set, nostr_metadata_get, nostr_metadata_fetch"
                     .to_string(),
             ),
         }

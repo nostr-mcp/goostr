@@ -1,113 +1,51 @@
-use crate::storage;
-use crate::util;
 use anyhow::{Context, Result};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use nostr_mcp_core::settings::SettingsStore as CoreSettingsStore;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
-pub struct ProfileMetadata {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub about: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub picture: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub banner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nip05: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lud06: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lud16: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub website: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct FollowEntry {
-    pub pubkey: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relay_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub petname: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
-pub struct KeySettings {
-    pub relays: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<ProfileMetadata>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub follows: Vec<FollowEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
-pub struct SettingsFile {
-    pub settings: BTreeMap<String, KeySettings>,
-}
 
 #[derive(Clone)]
-pub struct SettingsStore {
-    path: PathBuf,
-    inner: Arc<RwLock<SettingsFile>>,
-    pass: Arc<Vec<u8>>,
+pub struct SettingsStoreWrapper {
+    inner: CoreSettingsStore,
 }
 
-impl SettingsStore {
+impl SettingsStoreWrapper {
     pub async fn load_or_init(path: PathBuf) -> Result<Self> {
-        util::ensure_parent_dir(&path)?;
-        let pass = util::ensure_keystore_secret()?;
-        let pass_arc = Arc::new(pass);
-
-        let data = if path.exists() {
-            storage::decrypt_from_file::<SettingsFile>(&path, &pass_arc)
-                .context("decrypt settings file")?
-        } else {
-            SettingsFile::default()
-        };
-
-        Ok(Self {
-            path,
-            inner: Arc::new(RwLock::new(data)),
-            pass: pass_arc,
-        })
+        let pass = crate::util::ensure_keystore_secret()?;
+        let store = CoreSettingsStore::load_or_init(path, Arc::new(pass))
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+            .context("decrypt settings file")?;
+        Ok(Self { inner: store })
     }
 
     pub async fn persist(&self) -> Result<()> {
-        let data = { self.inner.read().await.clone() };
-        storage::encrypt_to_file(&self.path, &self.pass, &data)
+        self.inner.persist().await.map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn get_settings(&self, pubkey_hex: &str) -> Option<KeySettings> {
-        let data = self.inner.read().await;
-        data.settings.get(pubkey_hex).cloned()
+        self.inner.get_settings(pubkey_hex).await
     }
 
     pub async fn save_settings(&self, pubkey_hex: String, settings: KeySettings) -> Result<()> {
-        {
-            let mut data = self.inner.write().await;
-            data.settings.insert(pubkey_hex, settings);
-        }
-        self.persist().await
+        self.inner
+            .save_settings(pubkey_hex, settings)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn remove_settings(&self, pubkey_hex: &str) -> Result<()> {
-        {
-            let mut data = self.inner.write().await;
-            data.settings.remove(pubkey_hex);
-        }
-        self.persist().await
+        self.inner
+            .remove_settings(pubkey_hex)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn all_settings(&self) -> BTreeMap<String, KeySettings> {
-        let data = self.inner.read().await;
-        data.settings.clone()
+        self.inner.all_settings().await
     }
 }
+
+pub use nostr_mcp_core::settings::{FollowEntry, KeySettings, ProfileMetadata};
+
+pub type SettingsStore = SettingsStoreWrapper;

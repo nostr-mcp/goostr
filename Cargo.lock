@@ -1073,10 +1073,7 @@ dependencies = [
 name = "goostr"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "anyhow",
- "argon2",
- "base64",
  "chrono",
  "clap",
  "dirs",
@@ -1085,7 +1082,6 @@ dependencies = [
  "nostr 0.43.1",
  "nostr-mcp-core",
  "nostr-sdk",
- "rand 0.8.5",
  "rmcp",
  "schemars",
  "serde",
@@ -1583,10 +1579,16 @@ dependencies = [
 name = "nostr-mcp-core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64",
  "nostr 0.44.2",
+ "rand 0.8.5",
  "schemars",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
+ "zeroize",
 ]
 
 [[package]]

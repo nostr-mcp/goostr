@@ -46,9 +46,6 @@ pub enum GoostrError {
     SerdeYaml(#[from] serde_yaml::Error),
 
     #[error(transparent)]
-    Keyring(#[from] keyring::Error),
-
-    #[error(transparent)]
     Mcp(#[from] ErrorData),
 }
 

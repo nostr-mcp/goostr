@@ -1,30 +1,20 @@
-use anyhow::{Context, Result};
-use keyring::Entry;
+use anyhow::Result;
+use nostr_mcp_core::secrets::{KeyringSecretStore, SecretStore};
 
 const SERVICE: &str = "goostr";
 
-fn entry_for(label: &str) -> Result<Entry> {
-    Entry::new(SERVICE, label).context("creating keyring entry")
+fn store() -> KeyringSecretStore {
+    KeyringSecretStore::new(SERVICE)
 }
 
 pub fn set(label: &str, secret: &str) -> Result<()> {
-    let e = entry_for(label)?;
-    e.set_password(secret).context("storing secret in keyring")
+    store().set(label, secret).map_err(|e| anyhow::anyhow!(e))
 }
 
 pub fn get(label: &str) -> Result<Option<String>> {
-    let e = entry_for(label)?;
-    match e.get_password() {
-        Ok(s) => Ok(Some(s)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e).context("retrieving secret from keyring"),
-    }
+    store().get(label).map_err(|e| anyhow::anyhow!(e))
 }
 
 pub fn delete(label: &str) -> Result<()> {
-    let e = entry_for(label)?;
-    match e.delete_password() {
-        Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e).context("deleting secret from keyring"),
-    }
+    store().delete(label).map_err(|e| anyhow::anyhow!(e))
 }

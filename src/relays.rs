@@ -3,6 +3,7 @@ pub use nostr_mcp_core::relays::{
     RelaysConnectArgs, RelaysDisconnectArgs, RelaysSetArgs, RelayStatusRow,
 };
 use nostr_mcp_core::relays as core_relays;
+use nostr_mcp_core::events as core_events;
 use nostr_sdk::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -253,16 +254,7 @@ pub async fn subscription_targets_my_notes(
     since: Option<Timestamp>,
     until: Option<Timestamp>,
 ) -> Filter {
-    let default_since = Timestamp::now() - 86400 * 7;
-    let mut filter = Filter::new()
-        .author(pk)
-        .kind(Kind::TextNote)
-        .since(since.unwrap_or(default_since));
-
-    if let Some(u) = until {
-        filter = filter.until(u);
-    }
-    filter
+    core_events::subscription_targets_my_notes(pk, since, until).await
 }
 
 pub async fn subscription_targets_mentions_me(
@@ -270,28 +262,17 @@ pub async fn subscription_targets_mentions_me(
     since: Option<Timestamp>,
     until: Option<Timestamp>,
 ) -> Filter {
-    let default_since = Timestamp::now() - 86400 * 7;
-    let needle = pk.to_string();
-    let mut filter = Filter::new()
-        .kind(Kind::TextNote)
-        .search(needle)
-        .since(since.unwrap_or(default_since));
-
-    if let Some(u) = until {
-        filter = filter.until(u);
-    }
-    filter
+    core_events::subscription_targets_mentions_me(pk, since, until).await
 }
 
 pub async fn subscription_targets_my_metadata(pk: PublicKey) -> Filter {
-    Filter::new().author(pk).kind(Kind::Metadata).limit(1)
+    core_events::subscription_targets_my_metadata(pk).await
 }
 
 pub async fn list_events(client: &Client, filter: Filter, timeout_secs: u64) -> Result<Vec<Event>> {
-    let events = client
-        .fetch_events(filter, std::time::Duration::from_secs(timeout_secs))
-        .await?;
-    Ok(events.into_iter().collect())
+    core_events::list_events(client, filter, timeout_secs)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 pub async fn status_summary(client: &Client) -> Result<HashMap<String, String>> {

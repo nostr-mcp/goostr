@@ -1,8 +1,9 @@
 use crate::error::GoostrError;
 use crate::follows::*;
 use crate::keys::{
-    derive_public_from_private, verify_key, DerivePublicArgs, EmptyArgs, ExportArgs, GenerateArgs,
-    ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs, VerifyArgs,
+    derive_public_from_private, load_or_init_keystore, verify_key, DerivePublicArgs, EmptyArgs,
+    ExportArgs, GenerateArgs, ImportArgs, KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs,
+    VerifyArgs,
 };
 use crate::metadata::*;
 use crate::nostr_client::{ensure_client, reset_cached_client};
@@ -41,7 +42,7 @@ impl GoostrServer {
         let cell = KEYSTORE
             .get_or_try_init(|| async {
                 let path = util::nostr_index_path();
-                let ks = KeyStore::load_or_init(path).await?;
+                let ks = load_or_init_keystore(path).await?;
                 Ok::<RwLock<Arc<KeyStore>>, anyhow::Error>(RwLock::new(Arc::new(ks)))
             })
             .await
@@ -253,13 +254,13 @@ impl GoostrServer {
         if let Some(p) = args.path {
             std::env::set_var("GOOSTR_DIR", p);
             let path = util::nostr_index_path();
-            let new_store = KeyStore::load_or_init(path)
+            let new_store = load_or_init_keystore(path)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
             let cell = KEYSTORE
                 .get_or_try_init(|| async {
                     let path = util::nostr_index_path();
-                    let ks = KeyStore::load_or_init(path).await?;
+                    let ks = load_or_init_keystore(path).await?;
                     Ok::<RwLock<Arc<KeyStore>>, anyhow::Error>(RwLock::new(Arc::new(ks)))
                 })
                 .await

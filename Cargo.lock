@@ -1074,7 +1074,6 @@ name = "goostr"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "clap",
  "dirs",
  "futures",
@@ -1601,6 +1600,7 @@ dependencies = [
  "aes-gcm",
  "argon2",
  "base64",
+ "chrono",
  "keyring",
  "nostr 0.44.2",
  "nostr-relay-pool 0.44.0",

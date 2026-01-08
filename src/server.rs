@@ -476,7 +476,7 @@ impl GoostrServer {
                     "id": e.id.to_string(),
                     "kind": e.kind.as_u16(),
                     "pubkey": e.pubkey.to_string(),
-                    "created_at": e.created_at.as_u64(),
+                    "created_at": e.created_at.as_secs(),
                     "content": e.content,
                     "tags": e.tags.to_vec(),
                 })

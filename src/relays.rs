@@ -470,7 +470,23 @@ pub async fn post_reaction(client: &Client, args: PostReactionArgs) -> Result<Se
 
     let event_kind = args.event_kind.map(Kind::from);
 
-    let mut builder = EventBuilder::reaction_extended(event_id, event_pubkey, event_kind, content);
+    let relay_hint = if let Some(relay) = args.relay_hint {
+        Some(RelayUrl::parse(&relay).map_err(|e| {
+            crate::error::GoostrError::Invalid(format!("invalid relay url: {e}"))
+        })?)
+    } else {
+        None
+    };
+
+    let target = ReactionTarget {
+        event_id,
+        public_key: event_pubkey,
+        coordinate: None,
+        kind: event_kind,
+        relay_hint,
+    };
+
+    let mut builder = EventBuilder::reaction(target, content);
 
     if let Some(pow) = args.pow {
         builder = builder.pow(pow);
@@ -881,11 +897,11 @@ pub async fn get_poll_results(
     let mut vote_counts: HashMap<String, u64> = HashMap::new();
     let mut votes_by_pubkey: HashMap<String, (u64, Vec<String>)> = HashMap::new();
 
-    let now = Timestamp::now().as_u64();
+    let now = Timestamp::now().as_secs();
     let ended = ends_at.map_or(false, |end_time| now > end_time);
 
     for vote_event in vote_events.iter() {
-        let vote_time = vote_event.created_at.as_u64();
+        let vote_time = vote_event.created_at.as_secs();
 
         if let Some(end_time) = ends_at {
             if vote_time > end_time {

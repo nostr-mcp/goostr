@@ -1,163 +1,22 @@
 use crate::error::GoostrError;
-use crate::follows;
 use crate::keys::KeyStore;
-use crate::secrets;
-use crate::settings::{KeySettings, SettingsStore};
-use anyhow::{anyhow, Context};
-use nostr::prelude::*;
-use nostr_sdk::prelude::*;
+use crate::settings::SettingsStore;
+use nostr_mcp_core::client as core_client;
 use std::sync::Arc;
-use tokio::sync::{Mutex, OnceCell, RwLock};
-use tracing::{info, warn};
 
-#[derive(Clone)]
-pub struct ActiveClient {
-    pub client: Client,
-    pub active_label: String,
-    pub active_pubkey: PublicKey,
-}
-
-static CLIENT_CELL: OnceCell<RwLock<Option<ActiveClient>>> = OnceCell::const_new();
-static BUILD_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
-
-async fn build_from_keystore(
-    ks: &KeyStore,
-    settings_store: &SettingsStore,
-) -> Result<Option<ActiveClient>, GoostrError> {
-    let active = ks.get_active().await;
-    let Some(active_entry) = active else {
-        return Ok(None);
-    };
-    let label = active_entry.label.clone();
-    let pubkey = PublicKey::from_bech32(&active_entry.public_key)
-        .with_context(|| "invalid active public key")?;
-
-    let maybe_nsec = secrets::get(&label)?;
-    let client = if let Some(nsec) = maybe_nsec {
-        let keys =
-            Keys::parse(&nsec).map_err(|e| anyhow!("invalid stored secret for '{label}': {e}"))?;
-
-        Client::builder()
-            .signer(keys)
-            .opts(ClientOptions::new().automatic_authentication(true))
-            .build()
-    } else {
-        Client::builder()
-            .opts(ClientOptions::new().automatic_authentication(true))
-            .build()
-    };
-
-    let pubkey_hex = pubkey.to_hex();
-    let settings = settings_store.get_settings(&pubkey_hex).await;
-    
-    if let Some(ref settings) = settings {
-        if !settings.relays.is_empty() {
-            info!(
-                "auto-connecting to {} relay(s) for key '{}'",
-                settings.relays.len(),
-                label
-            );
-            for url in &settings.relays {
-                match client.add_relay(url).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        warn!("failed to add relay {}: {}", url, e);
-                    }
-                }
-            }
-            client.connect().await;
-        }
-    }
-
-    tokio::spawn({
-        let client_clone = client.clone();
-        let pubkey_clone = pubkey;
-        let settings_store_clone = settings_store.clone();
-        let pubkey_hex_clone = pubkey_hex.clone();
-        async move {
-            if let Some(settings) = settings {
-                if !settings.relays.is_empty() {
-                    match follows::sync_follows(&client_clone, &pubkey_clone, settings.follows).await {
-                        Ok((synced_follows, published)) => {
-                            if published {
-                                info!("synced follows with relays (published updates)");
-                            }
-                            let updated_settings = KeySettings {
-                                relays: settings.relays,
-                                metadata: settings.metadata,
-                                follows: synced_follows,
-                            };
-                            if let Err(e) = settings_store_clone.save_settings(pubkey_hex_clone, updated_settings).await {
-                                warn!("failed to save synced follows: {}", e);
-                            }
-                        }
-                        Err(e) => {
-                            warn!("failed to sync follows: {}", e);
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    Ok(Some(ActiveClient {
-        client,
-        active_label: label,
-        active_pubkey: pubkey,
-    }))
-}
+pub use nostr_mcp_core::client::ActiveClient;
 
 pub async fn ensure_client(
     ks: Arc<KeyStore>,
     settings_store: Arc<SettingsStore>,
 ) -> Result<ActiveClient, GoostrError> {
-    let cell = CLIENT_CELL
-        .get_or_try_init(|| async {
-            Ok::<RwLock<Option<ActiveClient>>, anyhow::Error>(RwLock::new(None))
-        })
-        .await?;
-    {
-        let r = cell.read().await;
-        if let Some(ac) = r.clone() {
-            let active = ks.get_active().await;
-            if active.as_ref().map(|e| &e.label) == Some(&ac.active_label) {
-                return Ok(ac);
-            }
-        }
-    }
-    let _g = BUILD_LOCK
-        .get_or_try_init(|| async { Ok::<Mutex<()>, anyhow::Error>(Mutex::new(())) })
-        .await?
-        .lock()
-        .await;
-    {
-        let r = cell.read().await;
-        if let Some(ac) = r.clone() {
-            let active = ks.get_active().await;
-            if active.as_ref().map(|e| &e.label) == Some(&ac.active_label) {
-                return Ok(ac);
-            }
-        }
-    }
-    let built = build_from_keystore(&ks, &settings_store).await?;
-    if let Some(ac) = built {
-        {
-            let mut w = cell.write().await;
-            *w = Some(ac.clone());
-        }
-        info!("nostr client initialized for active key");
-        Ok(ac)
-    } else {
-        Err(GoostrError::invalid(
-            "no active nostr key; set one with nostr_keys_set_active",
-        ))
-    }
+    core_client::ensure_client(ks, settings_store)
+        .await
+        .map_err(|e| GoostrError::invalid(e.to_string()))
 }
 
 pub async fn reset_cached_client() -> Result<(), GoostrError> {
-    if let Some(cell) = CLIENT_CELL.get() {
-        let mut w = cell.write().await;
-        *w = None;
-    }
-    Ok(())
+    core_client::reset_cached_client()
+        .await
+        .map_err(|e| GoostrError::invalid(e.to_string()))
 }

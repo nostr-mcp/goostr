@@ -8,7 +8,7 @@ use crate::keys::{
 use crate::metadata::*;
 use crate::nostr_client::{ensure_client, reset_cached_client};
 use crate::relays::*;
-use crate::settings::{FollowEntry, KeySettings, SettingsStore};
+use crate::settings::{load_or_init, FollowEntry, KeySettings, SettingsStore};
 use crate::subscriptions::EventsListArgs;
 use crate::util;
 use nostr_sdk::prelude::*;
@@ -52,13 +52,13 @@ impl GoostrServer {
     }
 
     async fn settings_store() -> Result<Arc<SettingsStore>, ErrorData> {
-        let cell = SETTINGS_STORE
-            .get_or_try_init(|| async {
-                let path = util::nostr_settings_path();
-                let ss = SettingsStore::load_or_init(path).await?;
-                Ok::<RwLock<Arc<SettingsStore>>, anyhow::Error>(RwLock::new(Arc::new(ss)))
-            })
-            .await
+            let cell = SETTINGS_STORE
+                .get_or_try_init(|| async {
+                    let path = util::nostr_settings_path();
+                    let ss = load_or_init(path).await?;
+                    Ok::<RwLock<Arc<SettingsStore>>, anyhow::Error>(RwLock::new(Arc::new(ss)))
+                })
+                .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let guard = cell.read().await;
         Ok(guard.clone())

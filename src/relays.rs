@@ -2,6 +2,7 @@ use anyhow::Result;
 pub use nostr_mcp_core::relays::{
     RelaysConnectArgs, RelaysDisconnectArgs, RelaysSetArgs, RelayStatusRow,
 };
+use nostr_mcp_core::publish as core_publish;
 use nostr_mcp_core::relays as core_relays;
 use nostr_mcp_core::events as core_events;
 use nostr_sdk::prelude::*;
@@ -9,31 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize)]
-pub struct SendResult {
-    pub id: String,
-    pub success: Vec<String>,
-    pub failed: HashMap<String, String>,
-    pub pubkey: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct PostTextArgs {
-    pub content: String,
-    pub pow: Option<u8>,
-    pub to_relays: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct PostReactionArgs {
-    pub event_id: String,
-    pub event_pubkey: String,
-    pub content: Option<String>,
-    pub event_kind: Option<u16>,
-    pub relay_hint: Option<String>,
-    pub pow: Option<u8>,
-    pub to_relays: Option<Vec<String>>,
-}
+pub use nostr_mcp_core::publish::{PostGroupChatArgs, PostReactionArgs, PostTextArgs, PostThreadArgs, SendResult};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PostCommentArgs {
@@ -59,26 +36,6 @@ pub struct PostReplyArgs {
     pub root_event_pubkey: Option<String>,
     pub mentioned_pubkeys: Option<Vec<String>>,
     pub relay_hint: Option<String>,
-    pub pow: Option<u8>,
-    pub to_relays: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct PostThreadArgs {
-    pub content: String,
-    pub subject: String,
-    pub hashtags: Option<Vec<String>>,
-    pub pow: Option<u8>,
-    pub to_relays: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct PostGroupChatArgs {
-    pub content: String,
-    pub group_id: String,
-    pub reply_to_id: Option<String>,
-    pub reply_to_relay: Option<String>,
-    pub reply_to_pubkey: Option<String>,
     pub pow: Option<u8>,
     pub to_relays: Option<Vec<String>>,
 }
@@ -286,123 +243,36 @@ pub async fn publish_event_builder(
     builder: EventBuilder,
     to_relays: Option<Vec<String>>,
 ) -> Result<SendResult> {
-    let out = if let Some(urls) = to_relays {
-        client.send_event_builder_to(urls, builder).await?
-    } else {
-        client.send_event_builder(builder).await?
-    };
-
-    let pubkey = client.signer().await?.get_public_key().await?.to_hex();
-
-    let id = out.id().to_string();
-    let success = out.success.into_iter().map(|u| u.to_string()).collect();
-    let failed = out
-        .failed
-        .into_iter()
-        .map(|(u, e)| (u.to_string(), e.to_string()))
-        .collect();
-
-    Ok(SendResult {
-        id,
-        success,
-        failed,
-        pubkey,
-    })
+    core_publish::publish_event_builder(client, builder, to_relays)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 pub async fn post_text_note(client: &Client, args: PostTextArgs) -> Result<SendResult> {
-    let mut builder = EventBuilder::text_note(args.content);
-    if let Some(pow) = args.pow {
-        builder = builder.pow(pow);
-    }
-    publish_event_builder(client, builder, args.to_relays).await
+    core_publish::post_text_note(client, args)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 pub async fn post_thread(client: &Client, args: PostThreadArgs) -> Result<SendResult> {
-    let mut tags = Vec::new();
-
-    tags.push(Tag::parse(&["subject".to_string(), args.subject.clone()])?);
-
-    if let Some(hashtags) = args.hashtags {
-        for hashtag in hashtags {
-            tags.push(Tag::parse(&["t".to_string(), hashtag])?);
-        }
-    }
-
-    let mut builder = EventBuilder::new(Kind::from(11), args.content).tags(tags);
-
-    if let Some(pow) = args.pow {
-        builder = builder.pow(pow);
-    }
-
-    publish_event_builder(client, builder, args.to_relays).await
+    core_publish::post_thread(client, args)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 pub async fn post_group_chat(
     client: &Client,
     args: PostGroupChatArgs,
 ) -> Result<SendResult> {
-    use crate::error::GoostrError;
-    
-    let mut tags = Vec::new();
-
-    tags.push(Tag::parse(&["h".to_string(), args.group_id.clone()])?);
-
-    if let Some(ref reply_id) = args.reply_to_id {
-        let event_id = EventId::from_hex(reply_id)
-            .map_err(|e| GoostrError::InvalidEventId(format!("{}: {}", reply_id, e)))?;
-        
-        let relay = args.reply_to_relay.as_deref().unwrap_or("");
-        let pubkey = args.reply_to_pubkey.as_deref().unwrap_or("");
-        
-        tags.push(Tag::parse(&[
-            "q".to_string(),
-            event_id.to_hex(),
-            relay.to_string(),
-            pubkey.to_string(),
-        ])?);
-    }
-
-    let mut builder = EventBuilder::new(Kind::from(9), args.content).tags(tags);
-
-    if let Some(pow) = args.pow {
-        builder = builder.pow(pow);
-    }
-
-    publish_event_builder(client, builder, args.to_relays).await
+    core_publish::post_group_chat(client, args)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 pub async fn post_reaction(client: &Client, args: PostReactionArgs) -> Result<SendResult> {
-    let event_id = EventId::from_hex(&args.event_id)?;
-    let event_pubkey = PublicKey::from_hex(&args.event_pubkey)?;
-
-    let content = args.content.unwrap_or_else(|| "+".to_string());
-
-    let event_kind = args.event_kind.map(Kind::from);
-
-    let relay_hint = if let Some(relay) = args.relay_hint {
-        Some(RelayUrl::parse(&relay).map_err(|e| {
-            crate::error::GoostrError::Invalid(format!("invalid relay url: {e}"))
-        })?)
-    } else {
-        None
-    };
-
-    let target = ReactionTarget {
-        event_id,
-        public_key: event_pubkey,
-        coordinate: None,
-        kind: event_kind,
-        relay_hint,
-    };
-
-    let mut builder = EventBuilder::reaction(target, content);
-
-    if let Some(pow) = args.pow {
-        builder = builder.pow(pow);
-    }
-
-    publish_event_builder(client, builder, args.to_relays).await
+    core_publish::post_reaction(client, args)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 pub async fn post_reply(client: &Client, args: PostReplyArgs) -> Result<SendResult> {

@@ -17,6 +17,7 @@ futures = "0.3"
 nostr = { version = "0.44.1", features = ["nip04"] }
 nostr-sdk = { version = "0.44.1" }
 nostr-mcp-core = { path = "../nostr-mcp-rs/nostr-mcp-core", features = ["keyring"] }
+nostr-mcp-tools = { path = "../nostr-mcp-rs/nostr-mcp-tools", features = ["keyring"] }
 rmcp = { version = "0.8.1", features = ["server","macros","transport-io","schemars"] }
 schemars = "1.0"
 serde = { version = "1", features = ["derive"] }

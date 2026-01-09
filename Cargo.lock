@@ -1079,6 +1079,7 @@ dependencies = [
  "futures",
  "nostr",
  "nostr-mcp-core",
+ "nostr-mcp-tools",
  "nostr-sdk",
  "rmcp",
  "schemars",
@@ -1578,6 +1579,22 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "zeroize",
+]
+
+[[package]]
+name = "nostr-mcp-tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "nostr-mcp-core",
+ "nostr-sdk",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

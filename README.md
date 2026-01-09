@@ -95,6 +95,7 @@ All tool names are stable and lowercase.
     - `until` (optional): Unix timestamp - only return events before this time
     - `kind` (required for `by_kind` preset): Nostr event kind number (e.g., 1 for text notes)
     - `author_npub` (required for `by_author`, optional for `by_kind`): Author's npub
+  - **Validation**: `since` must be <= `until`, and `limit` must be > 0
   - **Note**: All presets default to looking back 7 days if `since` is not specified
 - `nostr_events_post_text` - Post a new kind=1 text note to configured relays
   - **Parameters**:

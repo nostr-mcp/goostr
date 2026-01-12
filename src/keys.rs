@@ -7,8 +7,8 @@ pub use nostr_mcp_core::key_store::{
     KeyStore, RemoveArgs, RenameLabelArgs, SetActiveArgs,
 };
 pub use nostr_mcp_core::keys::{
-    derive_public_from_private, verify_key, DerivePublicArgs, DerivePublicResult, KeyType,
-    VerifyArgs, VerifyResult,
+    derive_public, verify_key, DerivePublicArgs, DerivePublicResult, KeyType, VerifyArgs,
+    VerifyResult,
 };
 
 pub async fn load_or_init_keystore(path: PathBuf) -> Result<KeyStore> {

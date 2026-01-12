@@ -64,7 +64,7 @@ All tool names are stable and lowercase.
     - `key` (required): Key string to verify (npub, nsec, or 64-char hex)
   - **Returns**: Key type, validity status, and derived public key if valid
   - **Use cases**: Validate before import, check key format, verify checksums
-- `nostr_keys_get_public_from_private` - Derive public key from a private key
+- `nostr_keys_derive_public` - Derive public key from a private key
   - **Parameters**:
     - `private_key` (required): Private key in nsec or hex format
   - **Returns**: Public key in both npub and hex formats
@@ -72,11 +72,12 @@ All tool names are stable and lowercase.
 - `nostr_keys_remove` - Remove a key by label
 - `nostr_keys_list` - List all stored keys (metadata only)
 - `nostr_keys_set_active` - Set the active key by label
-- `nostr_keys_active` - Get the active key (metadata only)
+- `nostr_keys_get_active` - Get the active key (metadata only)
 - `nostr_keys_rename_label` - Rename a key's label
 
 ### Configuration
-- `nostr_config_dir` - Get or set the directory used to persist the key index
+- `nostr_config_dir_get` - Get the directory used to persist the key index
+- `nostr_config_dir_set` - Set the directory used to persist the key index
 
 ### Relay Management
 - `nostr_relays_set` - Set relays and connect
@@ -97,6 +98,11 @@ All tool names are stable and lowercase.
     - `author_npub` (required for `by_author`, optional for `by_kind`): Author's npub
   - **Validation**: `since` must be <= `until`, and `limit` must be > 0
   - **Note**: All presets default to looking back 7 days if `since` is not specified
+- `nostr_events_query` - Query events using one or more NIP-01 filters
+  - **Parameters**:
+    - `filters` (required): Array of NIP-01 filter objects
+    - `limit` (optional): Maximum number of events to return (applies to all filters)
+    - `timeout_secs` (optional): Query timeout in seconds (default: 10)
 - `nostr_events_post_text` - Post a new kind=1 text note to configured relays
   - **Parameters**:
     - `content` (required): Text content of the note
@@ -114,6 +120,11 @@ All tool names are stable and lowercase.
     - `to_relays` (optional): Specific relay URLs to publish to
   - **Returns**: Event ID, pubkey that signed it, success/failed relays
   - **Note**: Follows NIP-25 specification for reactions
+- `nostr_events_publish_signed` - Publish a fully signed Nostr event (NIP-01)
+  - **Parameters**:
+    - `event_json` (required): JSON string for the signed event
+    - `to_relays` (optional): Specific relay URLs to publish to
+  - **Validation**: Event structure and signature are verified before publishing
 - `nostr_events_post_reply` - **Smart unified reply** that automatically chooses the correct protocol
   - **Auto-selection**: Uses NIP-10 (kind 1) for text notes, NIP-22 (kind 1111) for all other content
   - **Parameters**:
